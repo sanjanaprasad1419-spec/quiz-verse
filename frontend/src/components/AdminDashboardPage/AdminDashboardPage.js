@@ -1913,7 +1913,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                   <div className="kbc-panel glass-card" style={{ padding: '1.75rem', background: 'rgba(12, 17, 34, 0.95)', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '12px' }}>
                     <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#ffd700' }}>Active Quiz Sectors</h3>
                     <p className="panel-subtitle" style={{ fontSize: '0.85rem', color: 'var(--admin-muted)', marginBottom: '1.2rem' }}>
-                      Platform-wide database events overview
+                      {session?.user?.is_super_admin ? "Platform-wide database events overview" : "School database events overview"}
                     </p>
 
                     {quizzes.length === 0 ? (

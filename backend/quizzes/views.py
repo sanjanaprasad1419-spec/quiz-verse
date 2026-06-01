@@ -47,11 +47,19 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             return Quiz.objects.annotate(
                 registered_count=Count('registrations')
             ).all()
-        return Quiz.objects.annotate(
+        
+        queryset = Quiz.objects.annotate(
             registered_count=Count('registrations')
-        ).filter(
-            Q(created_by=user) | Q(host=user)
         )
+        if getattr(user, 'school', None):
+            queryset = queryset.filter(
+                Q(created_by=user) | Q(host=user) | Q(allowed_schools=user.school)
+            )
+        else:
+            queryset = queryset.filter(
+                Q(created_by=user) | Q(host=user)
+            )
+        return queryset.distinct()
         
     def perform_create(self, serializer):
         user = self.request.user
