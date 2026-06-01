@@ -1857,7 +1857,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>School Portal</h2>
                     </div>
                     <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: '900', color: '#fff', wordBreak: 'break-word', minHeight: '3.75rem', display: 'flex', alignItems: 'center' }}>
-                      {schools.find(sch => String(sch.id) === String(session?.user?.school_id))?.name || 'Your School Portal'}
+                      {schools.find(sch => String(sch.id) === String(session?.user?.school_id))?.school_name || 'Your School Portal'}
                     </div>
                     <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#00b4d8', marginTop: '0.5rem', fontFamily: 'monospace' }}>Active affiliation</div>
                   </article>
