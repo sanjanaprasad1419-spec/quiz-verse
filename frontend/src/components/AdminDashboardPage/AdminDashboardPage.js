@@ -1771,43 +1771,97 @@ function AdminDashboardInner({ showBeautifulPopup }) {
             <>
               {/* Premium 4-Card Stats Grid */}
               <section className="admin-metrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-                <article className="admin-metric-card tilt-card metric-mint" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                  <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.5rem', background: 'rgba(21, 101, 192, 0.15)', color: '#42a5f5', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>👥</span>
-                    <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Registered Students</h2>
-                  </div>
-                  <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_students}</div>
-                  <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#42a5f5', marginTop: '0.5rem', fontFamily: 'monospace' }}>Verified Profiles</div>
-                </article>
+                {/* Card 1: Students */}
+                {session?.user?.is_super_admin ? (
+                  <article className="admin-metric-card tilt-card metric-mint" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(21, 101, 192, 0.15)', color: '#42a5f5', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>👥</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Registered Students</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_students}</div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#42a5f5', marginTop: '0.5rem', fontFamily: 'monospace' }}>Verified Profiles</div>
+                  </article>
+                ) : (
+                  <article className="admin-metric-card tilt-card metric-mint" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(21, 101, 192, 0.15)', color: '#42a5f5', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>👥</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>My School Students</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>
+                      {allStudents.filter(s => String(s.school_id) === String(session?.user?.school_id)).length}
+                    </div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#42a5f5', marginTop: '0.5rem', fontFamily: 'monospace' }}>School pre-registrations</div>
+                  </article>
+                )}
 
-                <article className="admin-metric-card tilt-card metric-pink" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                  <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.5rem', background: 'rgba(255, 179, 0, 0.15)', color: '#ffd54f', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🏆</span>
-                    <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Total Quiz Events</h2>
-                  </div>
-                  <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_quizzes}</div>
-                  <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffd54f', marginTop: '0.5rem', fontFamily: 'monospace' }}>{adminStats.active_quizzes} Published</div>
-                </article>
+                {/* Card 2: Quizzes */}
+                {session?.user?.is_super_admin ? (
+                  <article className="admin-metric-card tilt-card metric-pink" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(255, 179, 0, 0.15)', color: '#ffd54f', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🏆</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Total Quiz Events</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_quizzes}</div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffd54f', marginTop: '0.5rem', fontFamily: 'monospace' }}>{adminStats.active_quizzes} Published</div>
+                  </article>
+                ) : (
+                  <article className="admin-metric-card tilt-card metric-pink" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(255, 179, 0, 0.15)', color: '#ffd54f', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🏆</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>My School Quizzes</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>
+                      {quizzes.filter(q => !q.allowed_schools || q.allowed_schools.length === 0 || q.allowed_schools.some(schId => String(schId) === String(session?.user?.school_id))).length}
+                    </div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffd54f', marginTop: '0.5rem', fontFamily: 'monospace' }}>Accessible arenas</div>
+                  </article>
+                )}
 
-                <article className="admin-metric-card tilt-card metric-yellow" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                  <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.5rem', background: 'rgba(255, 213, 79, 0.15)', color: '#ffb300', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🎟️</span>
-                    <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Contestant Registrations</h2>
-                  </div>
-                  <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_registrations}</div>
-                  <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffb300', marginTop: '0.5rem', fontFamily: 'monospace' }}>Across all arenas</div>
-                </article>
+                {/* Card 3: Registrations / Admins */}
+                {session?.user?.is_super_admin ? (
+                  <article className="admin-metric-card tilt-card metric-yellow" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(255, 213, 79, 0.15)', color: '#ffb300', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🎟️</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Contestant Registrations</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminStats.total_registrations}</div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffb300', marginTop: '0.5rem', fontFamily: 'monospace' }}>Across all arenas</div>
+                  </article>
+                ) : (
+                  <article className="admin-metric-card tilt-card metric-yellow" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(255, 213, 79, 0.15)', color: '#ffb300', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🛡️</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>My School Admins</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>
+                      {adminsList.filter(adm => String(adm.school_id) === String(session?.user?.school_id)).length}
+                    </div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffb300', marginTop: '0.5rem', fontFamily: 'monospace' }}>School staff accounts</div>
+                  </article>
+                )}
 
-                <article className="admin-metric-card tilt-card metric-cyan" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                  <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.5rem', background: 'rgba(0, 180, 216, 0.15)', color: '#00b4d8', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🌐</span>
-                    <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Arena Node Link</h2>
-                  </div>
-                  <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#4caf50', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Online <span className="pulse-dot" style={{ display: 'inline-block', width: '12px', height: '12px', background: '#4caf50', borderRadius: '50%', boxShadow: '0 0 10px #4caf50' }} />
-                  </div>
-                  <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#4caf50', marginTop: '0.5rem', fontFamily: 'monospace' }}>Websocket Synced</div>
-                </article>
+                {/* Card 4: Portal Affiliation / Platform Admins */}
+                {session?.user?.is_super_admin ? (
+                  <article className="admin-metric-card tilt-card metric-cyan" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(0, 180, 216, 0.15)', color: '#00b4d8', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🛡️</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>Platform Administrators</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>{adminsList.length}</div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#00b4d8', marginTop: '0.5rem', fontFamily: 'monospace' }}>Authorized personnel</div>
+                  </article>
+                ) : (
+                  <article className="admin-metric-card tilt-card metric-cyan" style={{ background: 'rgba(10, 17, 69, 0.45)', border: '1px solid var(--admin-border)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <div className="metric-header" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem', background: 'rgba(0, 180, 216, 0.15)', color: '#00b4d8', padding: '0.4rem', borderRadius: '8px', width: '38px', height: '38px', display: 'grid', placeItems: 'center' }}>🏫</span>
+                      <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>School Portal</h2>
+                    </div>
+                    <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: '900', color: '#fff', wordBreak: 'break-word', minHeight: '3.75rem', display: 'flex', alignItems: 'center' }}>
+                      {schools.find(sch => String(sch.id) === String(session?.user?.school_id))?.name || 'Your School Portal'}
+                    </div>
+                    <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#00b4d8', marginTop: '0.5rem', fontFamily: 'monospace' }}>Active affiliation</div>
+                  </article>
+                )}
               </section>
 
               {/* 2-Column Command Layout */}
@@ -1989,32 +2043,6 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     </div>
                   </div>
 
-                  {/* Server & System Telemetry Diagnostics */}
-                  <div className="kbc-panel glass-card" style={{ padding: '1.5rem', background: 'rgba(12, 17, 34, 0.95)', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '12px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#ffd700' }}>System Telemetry</h3>
-                    <p className="panel-subtitle" style={{ fontSize: '0.8rem', color: 'var(--admin-muted)', marginBottom: '1.2rem' }}>
-                      Diagnostic nominal health metrics
-                    </p>
-
-                    <div style={{ display: 'grid', gap: '0.8rem', fontSize: '0.85rem', fontFamily: 'monospace' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.4rem' }}>
-                        <span style={{ color: 'var(--admin-muted)' }}>Django API Engine:</span>
-                        <span style={{ color: '#4caf50', fontWeight: 'bold' }}>● ONLINE (v5.0)</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.4rem' }}>
-                        <span style={{ color: 'var(--admin-muted)' }}>Live Websocket Link:</span>
-                        <span style={{ color: '#4caf50', fontWeight: 'bold' }}>● NOMINAL</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.4rem' }}>
-                        <span style={{ color: 'var(--admin-muted)' }}>Mock Payment Module:</span>
-                        <span style={{ color: '#00b4d8', fontWeight: 'bold' }}>● READY</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.4rem' }}>
-                        <span style={{ color: 'var(--admin-muted)' }}>Database Schema:</span>
-                        <span style={{ color: '#ffd700', fontWeight: 'bold' }}>● STANDARDIZED</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </>
