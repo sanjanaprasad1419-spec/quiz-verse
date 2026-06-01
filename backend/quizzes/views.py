@@ -85,20 +85,27 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             ws.title = "FFF Sequencing Template"
             headers = [
                 'Question Text', 'Option A', 'Option B', 'Option C', 'Option D', 
-                'Correct Sequence (e.g. CADB)', 'Marks', 
+                'Option E', 'Option F', 'Option G', 'Option H', 'Option I', 
+                'Option J', 'Option K', 'Option L', 'Option M', 'Option N', 'Option O',
+                'Correct Sequence (e.g. ECFABGDH)', 'Marks', 
                 'Question Type (fff_1/fff_2/fff_3)', 'Category', 'Trivia'
             ]
             sample_row = [
-                "Arrange these Indian monuments in chronological order of construction (earliest first):",
+                "Arrange these historical monuments in chronological order of construction (earliest first):",
                 "Taj Mahal",
                 "Red Fort",
                 "Qutub Minar",
                 "Gateway of India",
-                "CADB",
+                "Sanchi Stupa",
+                "Charminar",
+                "Hawa Mahal",
+                "Victoria Memorial",
+                "", "", "", "", "", "", "",
+                "ECFABGDH",
                 1,
                 "fff_1",
                 "History",
-                "Qutub Minar (1199) -> Taj Mahal (1632) -> Red Fort (1638) -> Gateway of India (1911)."
+                "Sanchi Stupa (E) -> Qutub Minar (C) -> Charminar (F) -> Taj Mahal (A) -> Red Fort (B) -> Hawa Mahal (G) -> Gateway of India (D) -> Victoria Memorial (H). FFF questions strictly require between 8 and 15 options (A to H minimum). Fill options consecutively without gaps. The Correct Sequence must list all defined option letters in order (e.g., ECFABGDH)."
             ]
             filename = "fff_sequencing_template.xlsx"
         elif template_type == 'hotseat':
@@ -118,7 +125,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 1,
                 "hotseat_1",
                 "Science",
-                "NaCl stands for Sodium Chloride which is common table salt."
+                "NaCl stands for Sodium Chloride which is common table salt. INSTRUCTIONS: Hotseat MCQs require exactly 4 options (A to D). Question Type must be 'hotseat_1' (Batch 1), 'hotseat_2' (Batch 2), or 'hotseat_3' (Batch 3) to map questions to the respective hotseat contestant round."
             ]
             filename = "hotseat_quiz_template.xlsx"
         else:
@@ -138,7 +145,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 1,
                 "regular",
                 "General",
-                "Paris is the most populous city of France and has been one of Europe's major centres of finance, diplomacy, commerce, fashion, science and arts since the 17th century."
+                "Paris is the capital of France. INSTRUCTIONS: Preliminary MCQ requires exactly 4 options (A to D) and the Question Type must be set to 'regular'."
             ]
             filename = "preliminary_quiz_template.xlsx"
             
