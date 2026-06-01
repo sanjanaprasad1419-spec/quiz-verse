@@ -2446,7 +2446,23 @@ function AdminDashboardInner({ showBeautifulPopup }) {
           <section className="admin-overview-hero kbc-controller-container">
             {!selectedKbcQuizId ? (
               <div className="kbc-quiz-selector">
-                <span className="overview-status">KBC Event Command Center</span>
+                <span className="overview-status" style={{
+                  background: 'rgba(56, 189, 248, 0.25)',
+                  border: '2px solid rgba(56, 189, 248, 0.8)',
+                  color: '#ffffff',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '20px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  display: 'inline-block',
+                  marginBottom: '0.5rem',
+                  boxShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+                  textShadow: '0 0 5px rgba(56, 189, 248, 0.8)'
+                }}>
+                  KBC Event Command Center
+                </span>
                 <h2>Select a Live Event to Control</h2>
                 <div style={{display: 'flex', flexDirection: 'column', gap: '1.2rem', marginTop: '2rem'}}>
                   {quizzes.map(quiz => (
@@ -3353,7 +3369,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         {activeTab === 'Quiz Enrollment' && (
           <section className="admin-overview-hero manage-students-container" style={{ marginTop: '2rem', padding: '2rem' }}>
             <div className="overview-copy" style={{ width: '100%' }}>
-              <span className="overview-status" style={{ display: 'inline-block', marginBottom: '1rem' }}>
+              <span className="overview-status" style={{
+                background: 'rgba(56, 189, 248, 0.25)',
+                border: '2px solid rgba(56, 189, 248, 0.8)',
+                color: '#ffffff',
+                padding: '0.45rem 1rem',
+                borderRadius: '20px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                display: 'inline-block',
+                marginBottom: '0.5rem',
+                boxShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+                textShadow: '0 0 5px rgba(56, 189, 248, 0.8)'
+              }}>
                 Contestant Registration & Profile Facility
               </span>
               
@@ -3634,7 +3664,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
           return (
             <section className="admin-overview-hero" style={{ marginTop: '2rem', padding: '2rem' }}>
               <div className="overview-copy" style={{ width: '100%' }}>
-                <span className="overview-status" style={{ display: 'inline-block', marginBottom: '1rem' }}>
+                <span className="overview-status" style={{
+                  background: 'rgba(56, 189, 248, 0.25)',
+                  border: '2px solid rgba(56, 189, 248, 0.8)',
+                  color: '#ffffff',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '20px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  display: 'inline-block',
+                  marginBottom: '0.5rem',
+                  boxShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+                  textShadow: '0 0 5px rgba(56, 189, 248, 0.8)'
+                }}>
                   Student Account Management
                 </span>
 
@@ -4044,7 +4088,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         {activeTab === 'Manage School Admins' && (
           <section className="admin-overview-hero" style={{ marginTop: '2rem', padding: '2.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', alignItems: 'stretch' }}>
             <div className="overview-copy" style={{ width: '100%' }}>
-              <span className="overview-status" style={{ display: 'inline-block', marginBottom: '1rem', background: 'rgba(var(--admin-cyan-rgb), 0.1)', color: 'rgb(var(--admin-cyan-rgb))', padding: '0.35rem 0.75rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+              <span className="overview-status" style={{
+                background: 'rgba(56, 189, 248, 0.25)',
+                border: '2px solid rgba(56, 189, 248, 0.8)',
+                color: '#ffffff',
+                padding: '0.45rem 1rem',
+                borderRadius: '20px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                display: 'inline-block',
+                marginBottom: '0.5rem',
+                boxShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+                textShadow: '0 0 5px rgba(56, 189, 248, 0.8)'
+              }}>
                 🔑 SUPER ADMIN CONTROL STATION
               </span>
               <h2 style={{ margin: 0, fontSize: '2rem', fontWeight: '900' }}>Manage School Administrators</h2>
@@ -4249,7 +4307,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         {activeTab === 'System Settings' && (
           <section className="admin-overview-hero" style={{ marginTop: '2rem', padding: '2.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', alignItems: 'stretch' }}>
             <div className="overview-copy" style={{ width: '100%' }}>
-              <span className="overview-status" style={{ display: 'inline-block', marginBottom: '1rem' }}>
+              <span className="overview-status" style={{
+                background: 'rgba(56, 189, 248, 0.25)',
+                border: '2px solid rgba(56, 189, 248, 0.8)',
+                color: '#ffffff',
+                padding: '0.45rem 1rem',
+                borderRadius: '20px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                display: 'inline-block',
+                marginBottom: '0.5rem',
+                boxShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+                textShadow: '0 0 5px rgba(56, 189, 248, 0.8)'
+              }}>
                 ⚙️ SYSTEM OPERATIONS PANEL
               </span>
               <h2 style={{ margin: 0, fontSize: '2rem', fontWeight: '900' }}>System Settings & Preferences</h2>
