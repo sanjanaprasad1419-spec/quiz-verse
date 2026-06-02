@@ -4,38 +4,84 @@ import KbcLogo from './KbcLogo';
 
 export default function HotseatIntro({ onComplete, onTransitionStart, contestantName, introTitle }) {
   const [stage, setStage] = useState('start'); // start -> zoom -> flash -> welcome -> fade-out -> finish
+  const [showSkip, setShowSkip] = useState(false);
   const audioRef = useRef(null);
+  const timersRef = useRef([]);
 
   const fullTitle = introTitle || "Kaun Banega Codepati";
+
+  const clearAllTimers = () => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  };
+
+  const handleSkip = () => {
+    // 1. Clear all ongoing visual timeline timeouts
+    clearAllTimers();
+    
+    // 2. Start fading out audio smoothly
+    if (audioRef.current) {
+      const fadeInterval = setInterval(() => {
+        if (audioRef.current.volume > 0.05) {
+          audioRef.current.volume -= 0.05;
+        } else {
+          clearInterval(fadeInterval);
+          audioRef.current.pause();
+        }
+      }, 50);
+      timersRef.current.push(fadeInterval);
+    }
+    
+    // 3. Immediately trigger onTransitionStart to boot up the arena underneath
+    if (onTransitionStart) onTransitionStart();
+    
+    // 4. Set stage to fade-out
+    setStage('fade-out');
+    
+    // 5. Schedule complete callback
+    const skipCompleteTimeout = setTimeout(() => {
+      setStage('finish');
+      if (onComplete) onComplete();
+    }, 2500); // 2.5s is the fade-out duration
+    timersRef.current.push(skipCompleteTimeout);
+  };
 
   useEffect(() => {
     // Play music
     const audio = new Audio('/kaunbanegacrorepati.mp3');
     audioRef.current = audio;
     
-    let fallbackTimer;
-    
     const finishIntro = () => {
       setStage('finish');
-      setTimeout(() => {
+      const finishTimeout = setTimeout(() => {
         if (onComplete) onComplete();
       }, 1000); // 1-second fade out
+      timersRef.current.push(finishTimeout);
     };
 
     audio.play().catch(e => {
       console.log('Audio autoplay blocked', e);
-      fallbackTimer = setTimeout(finishIntro, 15000);
     });
 
-    // Animation sequence
+    // Make Skip button visible after 3s
+    const skipTimer = setTimeout(() => setShowSkip(true), 3000);
+    timersRef.current.push(skipTimer);
+
+    // Animation sequence timeouts (always run visual sequence)
     const t1 = setTimeout(() => setStage('zoom'), 8000);
+    timersRef.current.push(t1);
+
     const t2 = setTimeout(() => setStage('flash'), 12500);
+    timersRef.current.push(t2);
+
     const t3 = setTimeout(() => setStage('welcome'), 13000);
+    timersRef.current.push(t3);
     
     const t4 = setTimeout(() => {
       setStage('fade-out');
       if (onTransitionStart) onTransitionStart();
     }, 16500); // 16.5s: Reveal the arena underneath
+    timersRef.current.push(t4);
 
     const t5 = setTimeout(() => {
       // Fade out audio smoothly over the last 1.5s
@@ -48,17 +94,14 @@ export default function HotseatIntro({ onComplete, onTransitionStart, contestant
             audioRef.current.pause();
           }
         }, 100);
+        timersRef.current.push(fadeInterval);
       }
       finishIntro();
     }, 19000); // 19s: Audio fades completely and intro unmounts
+    timersRef.current.push(t5);
 
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
-      clearTimeout(t5);
-      clearTimeout(fallbackTimer);
+      clearAllTimers();
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = "";
@@ -97,6 +140,12 @@ export default function HotseatIntro({ onComplete, onTransitionStart, contestant
       </div>
 
       <div className="intro-flash-overlay"></div>
+
+      {showSkip && stage !== 'fade-out' && stage !== 'finish' && (
+        <button className="intro-skip-btn" onClick={handleSkip}>
+          SKIP INTRO ⏩
+        </button>
+      )}
     </div>
   );
 }

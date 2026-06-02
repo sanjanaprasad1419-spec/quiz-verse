@@ -373,8 +373,8 @@ function QuizArenaInner({ showBeautifulPopup }) {
   useEffect(() => {
     if (!liveState) return;
 
-    // Initialize preliminary round if stage is regular and participant has successfully entered
-    if (liveState.current_stage === 'regular' && !prelimInitialized && !loading && userSelectedRole === 'participant' && entryStage === 'active' && isEntered) {
+    // Initialize preliminary round if stage is regular, quiz is live, and participant has successfully entered
+    if (liveState.current_stage === 'regular' && liveState.status === 'live' && !prelimInitialized && !loading && userSelectedRole === 'participant' && entryStage === 'active' && isEntered) {
       initializePrelim();
     }
 
@@ -549,6 +549,8 @@ function QuizArenaInner({ showBeautifulPopup }) {
                 setLoadingCategories(false);
               }
             }
+          } else if (pendingType === 'walkaway') {
+            await acknowledgeHotseatLifeline(id, session?.token);
           }
         } catch (err) {
           console.error("Failed to apply approved lifeline: ", err);
@@ -559,7 +561,12 @@ function QuizArenaInner({ showBeautifulPopup }) {
     } else if (requestStatus === 'rejected') {
       const applyRejectedLifeline = async () => {
         try {
-          showBeautifulPopup("Lifeline Request Denied", `The host has rejected your request to use the ${pendingType === '5050' ? '50:50' : pendingType === 'poll' ? 'Audience Poll' : 'Switch Question'} lifeline.`, "error");
+          if (pendingType === 'walkaway') {
+            showBeautifulPopup("Walk Away Request Denied", "The host has rejected your request to walk away. You must continue playing!", "error");
+          } else {
+            const typeName = pendingType === '5050' ? '50:50' : pendingType === 'poll' ? 'Audience Poll' : 'Switch Question';
+            showBeautifulPopup("Lifeline Request Denied", `The host has rejected your request to use the ${typeName} lifeline.`, "error");
+          }
           await acknowledgeHotseatLifeline(id, session?.token);
         } catch (err) {
           console.error("Failed to acknowledge rejected lifeline: ", err);
@@ -935,8 +942,13 @@ function QuizArenaInner({ showBeautifulPopup }) {
     if (approvingLifeline) return;
     try {
       setApprovingLifeline(true);
+      const isWalkaway = hostHotseatData?.pending_lifeline_type === 'walkaway';
       await approveHotseatLifeline(id, session?.token);
-      showBeautifulPopup("Approved", "Lifeline request has been approved.", "success");
+      if (isWalkaway) {
+        showBeautifulPopup("Walk Away Approved", "Contestant walk-away request has been approved. The game has concluded.", "success");
+      } else {
+        showBeautifulPopup("Approved", "Lifeline request has been approved.", "success");
+      }
       await loadHostHotseatQuestion();
     } catch (err) {
       showBeautifulPopup("Error", err.message || "Failed to approve lifeline.", "error");
@@ -949,8 +961,13 @@ function QuizArenaInner({ showBeautifulPopup }) {
     if (rejectingLifeline) return;
     try {
       setRejectingLifeline(true);
+      const isWalkaway = hostHotseatData?.pending_lifeline_type === 'walkaway';
       await rejectHotseatLifeline(id, session?.token);
-      showBeautifulPopup("Rejected", "Lifeline request has been rejected.", "info");
+      if (isWalkaway) {
+        showBeautifulPopup("Walk Away Rejected", "Contestant walk-away request has been rejected.", "info");
+      } else {
+        showBeautifulPopup("Rejected", "Lifeline request has been rejected.", "info");
+      }
       await loadHostHotseatQuestion();
     } catch (err) {
       showBeautifulPopup("Error", err.message || "Failed to reject lifeline.", "error");
@@ -990,25 +1007,22 @@ function QuizArenaInner({ showBeautifulPopup }) {
   const handleWalkAway = () => {
     showBeautifulPopup(
       "Confirm Walk Away",
-      "Are you sure you want to WALK AWAY and lock in your current points? This ends your hotseat run.",
+      "Are you sure you want to request to WALK AWAY and take away all your points won till this question? The host must approve your request.",
       "info",
       async () => {
         if (submittingHotseat) return;
         try {
           setSubmittingHotseat(true);
-          const res = await hotseatWalkAway(id, session?.token);
-          setHotseatCompleted(true);
-          setHotseatStatus('walked_away');
-          setHotseatScore(res.final_points || 0);
-          showBeautifulPopup("SAFE WALK AWAY!", `You successfully walked away with ${res.final_points || 0} points!`, "success");
+          await hotseatWalkAway(id, session?.token);
+          showBeautifulPopup("Request Sent", "Your request to walk away has been sent to the host. Please standby for approval.", "success");
         } catch (err) {
-          showBeautifulPopup("Error", "Error while processing walk away.", "error");
+          showBeautifulPopup("Error", "Error while requesting walk away.", "error");
         } finally {
           setSubmittingHotseat(false);
         }
       },
       () => {},
-      "Yes, Walk Away",
+      "Yes, Request Walk Away",
       "No, Keep Playing"
     );
   };
@@ -1136,6 +1150,9 @@ function QuizArenaInner({ showBeautifulPopup }) {
       ? (liveState?.total_questions || prelimTotal || 0)
       : (liveState?.overall_total_questions || liveState?.total_questions || prelimTotal || 0);
 
+    const isHotseatContestant = liveState?.student_role === 'hotseat_player';
+    const showExitButton = !isHotseatContestant || hotseatCompleted;
+
     return (
       <header className="arena-topbar">
         <div className="arena-brand">
@@ -1205,9 +1222,11 @@ function QuizArenaInner({ showBeautifulPopup }) {
               📺 GO FULLSCREEN
             </button>
           )}
-          <button className="btn-exit" onClick={handleExitArena}>
-            🏃 EXIT ARENA
-          </button>
+          {showExitButton && (
+            <button className="btn-exit" onClick={handleExitArena}>
+              🏃 EXIT ARENA
+            </button>
+          )}
         </div>
       </header>
     );
@@ -1254,7 +1273,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
               >
                 <div className="role-card-icon">⚔️</div>
                 <h3>ENTER AS PARTICIPANT</h3>
-                <p>Answer preliminary questions, compete for the Top 30 leaderboard, and qualify for the hotseat!</p>
+                <p>Answer preliminary questions, compete for the leaderboard, and qualify for the hotseat!</p>
                 {quizStarted ? (
                   <span className="badge-warning">Participant Entry Closed (Quiz in Progress)</span>
                 ) : (
@@ -1554,12 +1573,12 @@ function QuizArenaInner({ showBeautifulPopup }) {
         <div className="arena-container">
           <div className="glass-card panel-intro text-center">
             <h2 className="golden-glow">Leaderboard Finalized!</h2>
-            <p>Admin has compiled the Top 30 students based on Preliminary scores. The contestants are arranged into three batches of 10 for the FFF round!</p>
+            <p>Admin has compiled the top preliminary scorers and arranged them into three equal batches of {b1.length || 0} for the FFF round!</p>
           </div>
 
           <div className="batches-grid">
             <div className="batch-column glass-card border-gold">
-              <h3>BATCH 1 (Contestants 1-10)</h3>
+              <h3>BATCH 1 (Contestants 1-{b1.length})</h3>
               <p className="helper-text">Competes in FFF Batch 1</p>
               <ul>
                 {b1.length === 0 ? <li className="empty-li">Locking players...</li> : b1.map((player, idx) => {
@@ -1577,7 +1596,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
             </div>
 
             <div className="batch-column glass-card border-gold">
-              <h3>BATCH 2 (Contestants 11-20)</h3>
+              <h3>BATCH 2 (Contestants {b1.length + 1}-{b1.length + b2.length})</h3>
               <p className="helper-text">Competes in FFF Batch 2</p>
               <ul>
                 {b2.length === 0 ? <li className="empty-li">Locking players...</li> : b2.map((player, idx) => {
@@ -1586,7 +1605,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   const isYou = session?.user?.id === pId;
                   return (
                     <li key={pId || idx} className={isYou ? 'user-highlight' : ''}>
-                      <span>#{idx+11} {pName}</span>
+                      <span>#{idx + b1.length + 1} {pName}</span>
                       {isYou && <span className="you-pill">YOU</span>}
                     </li>
                   );
@@ -1595,7 +1614,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
             </div>
 
             <div className="batch-column glass-card border-gold">
-              <h3>BATCH 3 (Contestants 21-30)</h3>
+              <h3>BATCH 3 (Contestants {b1.length + b2.length + 1}-{b1.length + b2.length + b3.length})</h3>
               <p className="helper-text">Competes in FFF Batch 3</p>
               <ul>
                 {b3.length === 0 ? <li className="empty-li">Locking players...</li> : b3.map((player, idx) => {
@@ -1604,7 +1623,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   const isYou = session?.user?.id === pId;
                   return (
                     <li key={pId || idx} className={isYou ? 'user-highlight' : ''}>
-                      <span>#{idx+21} {pName}</span>
+                      <span>#{idx + b1.length + b2.length + 1} {pName}</span>
                       {isYou && <span className="you-pill">YOU</span>}
                     </li>
                   );
@@ -1634,7 +1653,29 @@ function QuizArenaInner({ showBeautifulPopup }) {
               <div className="lock-icon">👁️</div>
               <h2 className="title-text golden-glow font-bold">{isHost ? "HOSTING PRELIMINARY ROUND" : "SPECTATING PRELIMINARY ROUND"}</h2>
               <p style={{margin: '1.5rem 0', fontSize: '1.1rem'}}>Participants are currently answering synchronized preliminary questions.</p>
-              <p className="helper-text">{isHost ? "Manage the arena from your Live KBC Controller." : "Standby. The host will compute the Top 30 leaderboard and reveal batch selections soon!"}</p>
+              <p className="helper-text">{isHost ? "Manage the arena from your Live KBC Controller." : "Standby. The host will compute the leaderboard and reveal batch selections soon!"}</p>
+            </div>
+          </div>
+        </main>
+      );
+    }
+
+    // Check if the quiz is live yet (standby view for participant)
+    if (liveState?.status !== 'live') {
+      return (
+        <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'}`}>
+          <div className="arena-background">
+            <KbcStageFx intensity="lite" />
+            <div className="arena-orb orb-pink" />
+            <div className="arena-orb orb-cyan" />
+          </div>
+          {renderTopbar("Standby Mode", "ARENA ENTRY")}
+          <div className="arena-center">
+            <div className="arena-completed-panel glass-card text-center glow-blue" style={{maxWidth: '600px'}}>
+              <div className="lock-icon" style={{ animation: 'spin 4s linear infinite', display: 'inline-block' }}>⏳</div>
+              <h2 className="title-text golden-glow font-bold">WAITING FOR THE HOST</h2>
+              <p style={{margin: '1.5rem 0', fontSize: '1.1rem'}}>The arena is secured. The host has not started the live event yet.</p>
+              <p className="helper-text">Standby. Your screen will automatically load the questions as soon as the host goes live!</p>
             </div>
           </div>
         </main>
@@ -1648,7 +1689,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
             <div className="arena-completed-panel glass-card">
               <span className="arena-status">Preliminary Completed</span>
               <h2 className="title-text golden-glow">Preliminary Answers Locked</h2>
-              <p>You have successfully submitted all your responses. Standby for the admin to compute the Top 30 leaderboard!</p>
+              <p>You have successfully submitted all your responses. Standby for the admin to compute the leaderboard!</p>
             </div>
           </div>
         </main>
@@ -2048,21 +2089,37 @@ function QuizArenaInner({ showBeautifulPopup }) {
 
                 {/* Lifeline Request Notification Card */}
                 {hostHotseatData?.lifeline_request_status === 'requested' && (
-                  <div className="lifeline-request-alert glass-card glow-gold blinking-border animate-pulse" style={{
-                    padding: '1.25rem',
-                    borderRadius: '10px',
-                    background: 'rgba(255, 215, 0, 0.06)',
-                    border: '2px solid #ffd700',
-                    marginBottom: '1.25rem',
-                    textAlign: 'center',
-                    boxShadow: '0 0 20px rgba(255, 215, 0, 0.25)'
-                  }}>
-                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#ffd700', fontSize: '1.2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
-                      🛎️ LIFELINE REQUEST PENDING
-                    </h3>
-                    <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#fff', lineHeight: '1.4' }}>
-                      Contestant <strong style={{ color: '#ffd700' }}>{activeContestantName}</strong> wants to activate the <strong style={{ color: '#ffd700', textTransform: 'uppercase', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>{hostHotseatData.pending_lifeline_type === '5050' ? '50:50' : hostHotseatData.pending_lifeline_type === 'poll' ? 'Audience Poll' : `Switch Question (${hostHotseatData.pending_lifeline_switch_category})`}</strong> lifeline.
-                    </p>
+                  <div 
+                    className="lifeline-request-alert glass-card blinking-border animate-pulse" 
+                    style={{
+                      padding: '1.25rem',
+                      borderRadius: '10px',
+                      background: hostHotseatData.pending_lifeline_type === 'walkaway' ? 'rgba(244, 67, 54, 0.08)' : 'rgba(255, 215, 0, 0.06)',
+                      border: hostHotseatData.pending_lifeline_type === 'walkaway' ? '2px solid #f44336' : '2px solid #ffd700',
+                      boxShadow: hostHotseatData.pending_lifeline_type === 'walkaway' ? '0 0 20px rgba(244, 67, 54, 0.3)' : '0 0 20px rgba(255, 215, 0, 0.25)',
+                      marginBottom: '1.25rem',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {hostHotseatData.pending_lifeline_type === 'walkaway' ? (
+                      <>
+                        <h3 style={{ margin: '0 0 0.5rem 0', color: '#f44336', fontSize: '1.2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
+                          🛑 CONTESTANT WANTS TO WALK AWAY!
+                        </h3>
+                        <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#fff', lineHeight: '1.4' }}>
+                          Contestant <strong style={{ color: '#ffd700' }}>{activeContestantName}</strong> wants to quit at this question and walk away with all points won till now: <strong style={{ color: '#ffd700', fontSize: '1.2rem' }}>{formatPoints(currentContestantScore)} pts</strong>.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h3 style={{ margin: '0 0 0.5rem 0', color: '#ffd700', fontSize: '1.2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
+                          🛎️ LIFELINE REQUEST PENDING
+                        </h3>
+                        <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#fff', lineHeight: '1.4' }}>
+                          Contestant <strong style={{ color: '#ffd700' }}>{activeContestantName}</strong> wants to activate the <strong style={{ color: '#ffd700', textTransform: 'uppercase', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>{hostHotseatData.pending_lifeline_type === '5050' ? '50:50' : hostHotseatData.pending_lifeline_type === 'poll' ? 'Audience Poll' : `Switch Question (${hostHotseatData.pending_lifeline_switch_category})`}</strong> lifeline.
+                        </p>
+                      </>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
                       <button 
                         onClick={handleApproveLifeline} 
@@ -2244,29 +2301,6 @@ function QuizArenaInner({ showBeautifulPopup }) {
                           </button>
                         )}
 
-                        {/* Local Private Test Intro Button */}
-                        <button
-                          onClick={() => setShowLocalTestIntro(prev => !prev)}
-                          style={{
-                            background: showLocalTestIntro 
-                              ? 'linear-gradient(135deg, #f43f5e 0%, #be123c 100%)'
-                              : 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-                            color: '#fff',
-                            border: 'none',
-                            fontWeight: '900',
-                            padding: '0.6rem 1.5rem',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            boxShadow: showLocalTestIntro 
-                              ? '0 2px 10px rgba(244, 63, 94, 0.35)' 
-                              : '0 2px 10px rgba(139, 92, 246, 0.35)',
-                            textTransform: 'uppercase',
-                            fontSize: '0.85rem'
-                          }}
-                        >
-                          {showLocalTestIntro ? '⏹️ STOP TEST INTRO' : '🔬 TEST INTRO (LOCAL)'}
-                        </button>
-
                         {/* Next Question Push Button */}
                         {!hostHotseatData.showing_question && (
                           <button
@@ -2445,7 +2479,13 @@ function QuizArenaInner({ showBeautifulPopup }) {
 
         return (
           <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'} ${poweringOn ? 'arena-power-on' : ''}`}>
-            <div className="arena-center">
+            <div className="arena-background">
+              <KbcStageFx intensity="lite" />
+              <div className="arena-orb orb-pink" />
+              <div className="arena-orb orb-cyan" />
+            </div>
+            {renderTopbar(`HOTSEAT CONCLUDED: ${session?.user?.full_name}`, "CONCLUDED", false, 0, hotseatScore)}
+            <div className="arena-center" style={{ minHeight: 'calc(100vh - 120px)' }}>
               <div className="arena-completed-panel glass-card text-center glow-blue" style={{ maxWidth: '600px', width: '90%', padding: '4rem 2rem' }}>
                 <span className="arena-status" style={{ background: '#00bfff', color: '#fff', padding: '0.3rem 1rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}>ROUND CONCLUDED</span>
                 <h2 className="golden-glow" style={{ fontSize: '2.5rem', margin: '1rem 0 1.5rem 0', fontWeight: '900' }}>GAME OVER</h2>
@@ -2464,16 +2504,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
         );
       }
 
-      if (!hotseatQuestion) {
-        return (
-          <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'} ${poweringOn ? 'arena-power-on' : ''}`}>
-            {introComponent}
-            <div className="arena-center">
-              <h2>Loading active Hotseat question card...</h2>
-            </div>
-          </main>
-        );
-      }
+      // Question loaded inline to keep UI layout stable during intro transition
 
       if (liveState?.hotseat_attempt && !liveState.hotseat_attempt.showing_question) {
         return (
@@ -2520,10 +2551,21 @@ function QuizArenaInner({ showBeautifulPopup }) {
             <div className="modal-overlay" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 999 }}>
               <div className="modal-content glass-card glow-gold text-center animate-pulse" style={{ maxWidth: '450px', padding: '2.5rem' }}>
                 <div className="loading-spinner-hourglass" style={{ fontSize: '3rem', marginBottom: '1.5rem' }}>⌛</div>
-                <h2 className="golden-glow" style={{ margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>LIFELINE PENDING</h2>
-                <p style={{ margin: '0 0 1.5rem 0', color: '#fff', fontSize: '1.05rem', lineHeight: '1.5' }}>
-                  Your request to use the <strong style={{ color: '#ffd700', textTransform: 'uppercase' }}>{liveState.hotseat_attempt.pending_lifeline_type === '5050' ? '50:50' : liveState.hotseat_attempt.pending_lifeline_type === 'poll' ? 'Audience Poll' : 'Switch Question'}</strong> lifeline is awaiting approval from the host.
-                </p>
+                {liveState.hotseat_attempt.pending_lifeline_type === 'walkaway' ? (
+                  <>
+                    <h2 className="golden-glow" style={{ margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em', color: '#f44336' }}>WALK AWAY PENDING</h2>
+                    <p style={{ margin: '0 0 1.5rem 0', color: '#fff', fontSize: '1.05rem', lineHeight: '1.5' }}>
+                      Your request to <strong style={{ color: '#f44336', textTransform: 'uppercase' }}>Walk Away</strong> from the game with your accumulated points is awaiting approval from the host.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="golden-glow" style={{ margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>LIFELINE PENDING</h2>
+                    <p style={{ margin: '0 0 1.5rem 0', color: '#fff', fontSize: '1.05rem', lineHeight: '1.5' }}>
+                      Your request to use the <strong style={{ color: '#ffd700', textTransform: 'uppercase' }}>{liveState.hotseat_attempt.pending_lifeline_type === '5050' ? '50:50' : liveState.hotseat_attempt.pending_lifeline_type === 'poll' ? 'Audience Poll' : 'Switch Question'}</strong> lifeline is awaiting approval from the host.
+                    </p>
+                  </>
+                )}
                 <div className="helper-text" style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.4)' }}>
                   Please standby. The host will approve your request shortly...
                 </div>
@@ -2628,48 +2670,58 @@ function QuizArenaInner({ showBeautifulPopup }) {
 
               {/* Question Screen */}
               <div className="active-question-section">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                  <span className="question-category-tag" style={{ margin: 0 }}>CATEGORY: {hotseatQuestion.category}</span>
-                  {liveState?.hotseat_attempt?.current_question_switched && (
-                    <span className="switched-badge animate-pulse" style={{ fontSize: '0.75rem', background: 'rgba(212,175,55,0.15)', border: '1px solid var(--dash-gold)', color: 'var(--dash-gold-bright)', padding: '0.2rem 0.6rem', borderRadius: '4px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.3rem', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>
-                      🔄 SWITCHED QUESTION
-                    </span>
-                  )}
-                </div>
-                <article className="arena-question-card glass-card kbc-question-frame">
-                  <h2>{hotseatQuestion.text}</h2>
-                </article>
-
-                <div className="kbc-choices-grid">
-                  {hotseatQuestion.choices.map((choice, i) => {
-                    const isEliminated = eliminatedChoiceIds.includes(choice.id);
-                    const isChoiceVisible = liveState?.hotseat_attempt?.options_visible && (revealedChoicesCount > i);
-                    return (
-                      <button 
-                        key={choice.id}
-                        className={`arena-choice-btn kbc-choice ${selectedHotseatChoice === choice.id ? 'selected' : ''} ${isEliminated ? 'eliminated' : ''}`}
-                        onClick={() => handleHotseatChoiceClick(choice.id)}
-                        disabled={isEliminated || submittingHotseat || !isChoiceVisible}
-                        style={{
-                          opacity: isChoiceVisible ? 1 : 0,
-                          pointerEvents: isChoiceVisible ? 'auto' : 'none',
-                          transform: isChoiceVisible ? 'translateY(0)' : 'translateY(10px)',
-                          transition: 'opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease'
-                        }}
-                      >
-                        <div className="choice-indicator">{['A','B','C','D'][i]}</div>
-                        <div className="choice-text">{isEliminated ? "" : choice.text}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {liveState?.hotseat_attempt?.options_visible && (
-                  <div className="hotseat-action-row" style={{ justifyContent: 'center' }}>
-                    <button className="btn-walkaway glow-red" onClick={handleWalkAway} disabled={submittingHotseat}>
-                      🏃 WALK AWAY (Lock Current Score)
-                    </button>
+                {!hotseatQuestion ? (
+                  <div className="arena-question-card glass-card text-center" style={{ padding: '3.5rem', border: '1px solid rgba(255, 183, 77, 0.2)' }}>
+                    <div className="loading-spinner-hourglass" style={{ fontSize: '3rem', marginBottom: '1.5rem', color: 'var(--dash-gold)' }}>⏳</div>
+                    <h3 className="golden-glow" style={{ fontSize: '1.5rem', margin: '0 0 1rem 0', fontWeight: '800' }}>PREPARING TERMINAL</h3>
+                    <p style={{ color: 'rgba(255,255,255,0.6)', margin: 0 }}>Waiting for the host to push the question data...</p>
                   </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                      <span className="question-category-tag" style={{ margin: 0 }}>CATEGORY: {hotseatQuestion.category}</span>
+                      {liveState?.hotseat_attempt?.current_question_switched && (
+                        <span className="switched-badge animate-pulse" style={{ fontSize: '0.75rem', background: 'rgba(212,175,55,0.15)', border: '1px solid var(--dash-gold)', color: 'var(--dash-gold-bright)', padding: '0.2rem 0.6rem', borderRadius: '4px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.3rem', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>
+                          🔄 SWITCHED QUESTION
+                        </span>
+                      )}
+                    </div>
+                    <article className="arena-question-card glass-card kbc-question-frame">
+                      <h2>{hotseatQuestion.text}</h2>
+                    </article>
+
+                    <div className="kbc-choices-grid">
+                      {hotseatQuestion.choices.map((choice, i) => {
+                        const isEliminated = eliminatedChoiceIds.includes(choice.id);
+                        const isChoiceVisible = liveState?.hotseat_attempt?.options_visible && (revealedChoicesCount > i);
+                        return (
+                          <button 
+                            key={choice.id}
+                            className={`arena-choice-btn kbc-choice ${selectedHotseatChoice === choice.id ? 'selected' : ''} ${isEliminated ? 'eliminated' : ''}`}
+                            onClick={() => handleHotseatChoiceClick(choice.id)}
+                            disabled={isEliminated || submittingHotseat || !isChoiceVisible}
+                            style={{
+                              opacity: isChoiceVisible ? 1 : 0,
+                              pointerEvents: isChoiceVisible ? 'auto' : 'none',
+                              transform: isChoiceVisible ? 'translateY(0)' : 'translateY(10px)',
+                              transition: 'opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease'
+                            }}
+                          >
+                            <div className="choice-indicator">{['A','B','C','D'][i]}</div>
+                            <div className="choice-text">{isEliminated ? "" : choice.text}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {liveState?.hotseat_attempt?.options_visible && (
+                      <div className="hotseat-action-row" style={{ justifyContent: 'center' }}>
+                        <button className="btn-walkaway glow-red" onClick={handleWalkAway} disabled={submittingHotseat}>
+                          🏃 WALK AWAY (Lock Current Score)
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -2862,7 +2914,8 @@ function QuizArenaInner({ showBeautifulPopup }) {
     const currentContestantScore = liveState?.hotseat_attempt?.score || 0;
 
     return (
-      <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'}`}>
+      <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'} ${poweringOn ? 'arena-power-on' : ''}`}>
+        {introComponent}
         <div className="arena-background">
           <KbcStageFx intensity="lite" />
           <div className="arena-orb orb-pink" />

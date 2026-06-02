@@ -5,6 +5,13 @@ import { getPublishedQuizzes, getMyRegistrations, registerForQuiz, processMockPa
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
 import './DashboardPage.css';
 
+const LockIcon = ({ size = 20, ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
+
 const SYMBOLS = {
   triangle: '\u25B3',
   circle: '\u25CB',
@@ -216,7 +223,7 @@ function DashboardPage() {
             transition: 'all 0.3s ease',
           }}
         >
-          🔒 CHANGE PASSWORD
+          <LockIcon size={14} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} /> CHANGE PASSWORD
         </button>
       </div>
     </article>
@@ -517,7 +524,7 @@ function DashboardPage() {
             borderRadius: '16px', padding: '2.5rem', width: '100%', maxWidth: '420px',
             boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
           }}>
-            <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.4rem', color: '#fff' }}>🔒 Change Password</h2>
+            <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.4rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><LockIcon size={20} /> Change Password</h2>
             <p style={{ margin: '0 0 1.5rem 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)' }}>
               Enter your current password and choose a new one.
             </p>

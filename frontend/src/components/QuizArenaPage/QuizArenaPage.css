@@ -1978,16 +1978,22 @@
 
 .arena-power-on .kbc-topbar {
   opacity: 0;
-  animation: slideDownFade 1.5s ease 1s forwards;
+  animation: slideDownFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) 1.0s forwards;
 }
 
-.arena-power-on .hotseat-layout,
-.arena-power-on .hotseat-console-panel,
-.arena-power-on .active-question-section,
-.arena-power-on .arena-center,
-.arena-power-on .glass-card {
+.arena-power-on .hotseat-console-panel {
   opacity: 0;
-  animation: slideUpFade 1.5s ease 2s forwards;
+  animation: slideRightFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) 1.4s forwards;
+}
+
+.arena-power-on .hotseat-ladder-panel {
+  opacity: 0;
+  animation: slideLeftFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) 1.6s forwards;
+}
+
+.arena-power-on .arena-center {
+  opacity: 0;
+  animation: slideUpFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) 1.4s forwards;
 }
 
 @keyframes fadeInSlow {
@@ -2004,4 +2010,14 @@
 @keyframes slideUpFade {
   0% { opacity: 0; transform: translateY(40px); }
   100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideRightFade {
+  0% { opacity: 0; transform: translateX(-40px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideLeftFade {
+  0% { opacity: 0; transform: translateX(40px); }
+  100% { opacity: 1; transform: translateX(0); }
 }

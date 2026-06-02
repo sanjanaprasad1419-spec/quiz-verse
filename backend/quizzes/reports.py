@@ -226,7 +226,7 @@ def generate_quiz_pdf_report(quiz_id):
         [Paragraph("Metric Description", cell_header), Paragraph("Count / Value", cell_header)],
         [Paragraph("Total Registered Candidates", cell_regular), Paragraph(str(total_registered), cell_bold)],
         [Paragraph("Round 1 (Preliminary MCQ) Participants", cell_regular), Paragraph(str(total_prelim_participants), cell_bold)],
-        [Paragraph("Round 1 Failures (Did not make FFF Top 30)", cell_regular), Paragraph(str(failed_round_1_count), cell_bold)],
+        [Paragraph("Round 1 Failures (Did not make FFF Batches)", cell_regular), Paragraph(str(failed_round_1_count), cell_bold)],
         [Paragraph("Round 2 (Fastest Finger First) Candidates", cell_regular), Paragraph(str(len(top_30_ids)), cell_bold)],
         [Paragraph("Round 2 Failures (Did not secure Hotseat)", cell_regular), Paragraph(str(failed_round_2_count), cell_bold)],
         [Paragraph("Total Contestants Promoted to Hotseat", cell_regular), Paragraph(str(len(hotseat_attempts)), cell_bold)],
@@ -321,7 +321,7 @@ def generate_quiz_pdf_report(quiz_id):
     story.append(Spacer(1, 15))
     
     # --- SECTION 4: PRELIMINARY ROUND LEADERBOARD ---
-    story.append(Paragraph("4. Preliminary MCQ Leaderboard (Top 30)", h1_style))
+    story.append(Paragraph("4. Preliminary MCQ Leaderboard", h1_style))
     sorted_prelims = sorted(prelim_attempts, key=lambda x: (x.score, -(x.completed_at - x.started_at).total_seconds() if x.completed_at else 0), reverse=True)
     
     if not sorted_prelims:
@@ -336,7 +336,7 @@ def generate_quiz_pdf_report(quiz_id):
                 Paragraph("Prelim Score", cell_header)
             ]
         ]
-        for idx, att in enumerate(sorted_prelims[:30], start=1):
+        for idx, att in enumerate(sorted_prelims, start=1):
             prelim_rows.append([
                 Paragraph(f"#{idx}", cell_bold),
                 Paragraph(att.student.full_name, cell_bold if idx <= 10 else cell_regular),

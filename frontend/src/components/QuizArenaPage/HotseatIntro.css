@@ -14,6 +14,8 @@
 
 .stage-fade-out {
   opacity: 0;
+  transform: scale(1.05);
+  transition: opacity 2.5s cubic-bezier(0.25, 1, 0.5, 1), transform 2.5s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .drone-camera {
@@ -291,4 +293,72 @@
 @keyframes sweepBeamRight {
   0% { transform: rotateZ(20deg) rotateX(45deg); opacity: 0.5; }
   100% { transform: rotateZ(-20deg) rotateX(45deg); opacity: 0.8; }
+}
+
+/* --- Cinematic Exit Transitions & Skips --- */
+
+.stage-fade-out .drone-camera {
+  transform: scale(1.35) translateZ(400px);
+  filter: blur(12px);
+  transition: transform 2.5s cubic-bezier(0.1, 0.8, 0.3, 1), filter 2s ease;
+}
+
+.stage-fade-out .intro-content {
+  transform: scale(1.2) translateY(-60px);
+  opacity: 0;
+  filter: blur(10px);
+  transition: transform 2s cubic-bezier(0.1, 0.8, 0.3, 1), opacity 1.8s ease, filter 1.8s ease;
+}
+
+.stage-fade-out .intro-welcome-msg {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.15);
+  filter: blur(8px);
+  transition: all 1.8s cubic-bezier(0.1, 0.8, 0.3, 1);
+}
+
+/* Dynamic screen flash covering transition */
+.stage-fade-out .intro-flash-overlay {
+  animation: transitionFlash 2.5s ease-out forwards;
+}
+
+@keyframes transitionFlash {
+  0% { opacity: 0; }
+  12% { opacity: 0.95; background: #ffffff; }
+  35% { opacity: 0.85; background: #e0f7fa; }
+  100% { opacity: 0; background: transparent; }
+}
+
+/* Glassmorphic skip button in the bottom right corner */
+.intro-skip-btn {
+  position: absolute;
+  bottom: 2.5rem;
+  right: 2.5rem;
+  z-index: 100002;
+  background: rgba(14, 22, 75, 0.4);
+  border: 1.5px solid rgba(0, 240, 255, 0.25);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font-ui), 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  padding: 0.75rem 1.8rem;
+  border-radius: 50px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  text-transform: uppercase;
+}
+
+.intro-skip-btn:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.7);
+  color: #00f0ff;
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.45), inset 0 1px 0 rgba(0, 240, 255, 0.1);
+  transform: translateY(-3px) scale(1.03);
+}
+
+.intro-skip-btn:active {
+  transform: translateY(-1px) scale(0.98);
 }

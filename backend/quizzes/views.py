@@ -775,13 +775,20 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             attempts = QuizAttempt.objects.filter(quiz=quiz, completed_at__isnull=False).order_by('-score', 'completed_at')
             student_ids = [att.student_id for att in attempts]
             
-            top_30 = student_ids[:30]
+            total_participants = len(student_ids)
+            top_30_percent_count = int(round(total_participants * 0.30))
+            batch_size = top_30_percent_count // 3
+            if total_participants >= 3 and batch_size < 1:
+                batch_size = 1
+                
+            total_to_select = batch_size * 3
+            top_selected = student_ids[:total_to_select]
             
-            batch_1 = top_30[0:10]
-            batch_2 = top_30[10:20]
-            batch_3 = top_30[20:30]
+            batch_1 = top_selected[0:batch_size]
+            batch_2 = top_selected[batch_size:batch_size*2]
+            batch_3 = top_selected[batch_size*2:total_to_select]
             
-            quiz.top_30_selected = top_30
+            quiz.top_30_selected = top_selected
         else:
             quiz.top_30_selected = list(batch_1) + list(batch_2) + list(batch_3)
 
@@ -790,6 +797,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
         quiz.batch_3_players = batch_3
         quiz.save(update_fields=['top_30_selected', 'batch_1_players', 'batch_2_players', 'batch_3_players'])
         return Response(QuizSerializer(quiz).data)
+
 
     @action(detail=True, methods=['get'])
     def fff_results(self, request, pk=None):
@@ -869,7 +877,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 default=Value(1),
                 output_field=IntegerField()
             )
-        ).order_by('completion_order', '-score', 'completed_at')[:30]
+        ).order_by('completion_order', '-score', 'completed_at')
         
         total_regular_questions = quiz.questions.filter(question_type=Question.QuestionType.REGULAR).count()
         
@@ -1237,6 +1245,8 @@ class QuizAttemptStartView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if quiz.status != Quiz.Status.LIVE:
+            return Response({"detail": "The quiz is not live yet."}, status=403)
         reg = get_object_or_404(QuizRegistration, quiz=quiz, student=request.user)
         if reg.payment_status != 'paid':
             return Response({"detail": "Payment required."}, status=403)
@@ -1250,6 +1260,8 @@ class QuizAttemptNextQuestionView(APIView):
     
     def get(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if quiz.status != Quiz.Status.LIVE:
+            return Response({"detail": "The quiz is not live yet."}, status=403)
         attempt = get_object_or_404(QuizAttempt, student=request.user, quiz=quiz)
         
         questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
@@ -1278,6 +1290,8 @@ class QuizAttemptSubmitAnswerView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if quiz.status != Quiz.Status.LIVE:
+            return Response({"detail": "The quiz is not live yet."}, status=403)
         attempt = get_object_or_404(QuizAttempt, student=request.user, quiz=quiz)
         
         questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
@@ -1510,11 +1524,19 @@ class QuizLiveStateView(APIView):
             attempts = list(QuizAttempt.objects.filter(quiz=quiz, completed_at__isnull=False).order_by('-score', 'completed_at'))
             if attempts:
                 student_ids = [att.student_id for att in attempts]
-                top_30 = student_ids[:30]
-                quiz.batch_1_players = top_30[0:10]
-                quiz.batch_2_players = top_30[10:20]
-                quiz.batch_3_players = top_30[20:30]
-                quiz.top_30_selected = top_30
+                total_participants = len(student_ids)
+                top_30_percent_count = int(round(total_participants * 0.30))
+                batch_size = top_30_percent_count // 3
+                if total_participants >= 3 and batch_size < 1:
+                    batch_size = 1
+                
+                total_to_select = batch_size * 3
+                top_selected = student_ids[:total_to_select]
+                
+                quiz.batch_1_players = top_selected[0:batch_size]
+                quiz.batch_2_players = top_selected[batch_size:batch_size*2]
+                quiz.batch_3_players = top_selected[batch_size*2:total_to_select]
+                quiz.top_30_selected = top_selected
                 quiz.save(update_fields=['top_30_selected', 'batch_1_players', 'batch_2_players', 'batch_3_players'])
 
         user = request.user
@@ -1729,6 +1751,7 @@ class QuizLiveStateView(APIView):
         return Response({
             "quiz_id": quiz.id,
             "title": quiz.title,
+            "status": quiz.status,
             "intro_title": quiz.intro_title or "Kaun Banega Codepati",
             "current_stage": quiz.current_stage,
             "student_role": role,
@@ -2223,25 +2246,13 @@ class HotseatWalkAwayView(APIView):
         if attempt.status != HotseatAttempt.Status.PLAYING:
             return Response({"detail": "Hotseat attempt already completed."}, status=400)
             
-        attempt.status = HotseatAttempt.Status.WALKED_AWAY
-        attempt.completed_at = timezone.now()
+        attempt.pending_lifeline_type = 'walkaway'
+        attempt.lifeline_request_status = 'requested'
+        attempt.approved_lifeline_data = {}
         attempt.save()
-        
-        if batch_num == 1:
-            quiz.hotseat_score_1 = attempt.score
-            quiz.hotseat_status_1 = "walked_away"
-            quiz.save(update_fields=['hotseat_score_1', 'hotseat_status_1'])
-        elif batch_num == 2:
-            quiz.hotseat_score_2 = attempt.score
-            quiz.hotseat_status_2 = "walked_away"
-            quiz.save(update_fields=['hotseat_score_2', 'hotseat_status_2'])
-        elif batch_num == 3:
-            quiz.hotseat_score_3 = attempt.score
-            quiz.hotseat_status_3 = "walked_away"
-            quiz.save(update_fields=['hotseat_score_3', 'hotseat_status_3'])
             
         return Response({
-            "walked_away": True,
+            "requested": True,
             "final_points": attempt.score
         })
 
@@ -2410,6 +2421,23 @@ class AdminApproveLifelineView(APIView):
                 return Response({"detail": "Switch Question lifeline already used."}, status=400)
             approved_data = {}
             
+        elif lifeline == 'walkaway':
+            attempt.status = HotseatAttempt.Status.WALKED_AWAY
+            attempt.completed_at = timezone.now()
+            approved_data = {}
+            if batch_num == 1:
+                quiz.hotseat_score_1 = attempt.score
+                quiz.hotseat_status_1 = "walked_away"
+                quiz.save(update_fields=['hotseat_score_1', 'hotseat_status_1'])
+            elif batch_num == 2:
+                quiz.hotseat_score_2 = attempt.score
+                quiz.hotseat_status_2 = "walked_away"
+                quiz.save(update_fields=['hotseat_score_2', 'hotseat_status_2'])
+            elif batch_num == 3:
+                quiz.hotseat_score_3 = attempt.score
+                quiz.hotseat_status_3 = "walked_away"
+                quiz.save(update_fields=['hotseat_score_3', 'hotseat_status_3'])
+                
         attempt.lifeline_request_status = 'approved'
         attempt.approved_lifeline_data = approved_data
         attempt.save()
