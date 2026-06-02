@@ -41,7 +41,7 @@ function LandingPage() {
 
             <div className="landing-description">
               <p className="desc-main">
-                The ultimate campus quiz arena — inspired by Kaun Banega Codepati. Compete live, climb the ladder, claim the title.
+                The ultimate campus quiz arena — inspired by Kaun Banega Crorepati. Compete live, climb the ladder, claim the title.
               </p>
             </div>
 

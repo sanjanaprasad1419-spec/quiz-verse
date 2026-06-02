@@ -8,7 +8,7 @@ export default function HotseatIntro({ onComplete, onTransitionStart, contestant
   const audioRef = useRef(null);
   const timersRef = useRef([]);
 
-  const fullTitle = introTitle || "Kaun Banega Codepati";
+  const fullTitle = introTitle || "Kaun Banega Crorepati";
 
   const clearAllTimers = () => {
     timersRef.current.forEach(clearTimeout);

@@ -256,7 +256,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     registration_close_date: '', registration_close_time: '', 
     max_participants: '100',
     registration_fee: '0', visible_to_students: false, is_registration_open: false,
-    intro_title: 'Kaun Banega Codepati',
+    intro_title: 'Kaun Banega Crorepati',
     require_eligibility: false,
     eligibility_school: '',
     eligibility_programs: [],
@@ -1220,7 +1220,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       registration_close_date: '', registration_close_time: '', 
       max_participants: '100',
       registration_fee: '0', visible_to_students: false, is_registration_open: false,
-      intro_title: 'Kaun Banega Codepati',
+      intro_title: 'Kaun Banega Crorepati',
       require_eligibility: false,
       eligibility_school: session?.user?.school_id || '',
       eligibility_programs: [],
@@ -1263,7 +1263,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       registration_fee: quiz.registration_fee ? quiz.registration_fee.toString() : '0',
       visible_to_students: quiz.visible_to_students || false,
       is_registration_open: quiz.is_registration_open || false,
-      intro_title: quiz.intro_title || 'Kaun Banega Codepati',
+      intro_title: quiz.intro_title || 'Kaun Banega Crorepati',
       require_eligibility: !!(quiz.allowed_schools?.length || quiz.allowed_programs?.length || quiz.allowed_branches?.length),
       eligibility_school: quiz.allowed_schools?.[0] || session?.user?.school_id || '',
       eligibility_programs: quiz.allowed_programs || [],
@@ -4766,7 +4766,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       value={formData.eligibility_school} 
                       onChange={(e) => {
                         const schoolId = e.target.value;
-                        let suggestedTitle = 'Kaun Banega Codepati';
+                        let suggestedTitle = 'Kaun Banega Crorepati';
                         if (schoolId) {
                           const schoolObj = schools.find(s => String(s.id) === String(schoolId));
                           if (schoolObj) {
@@ -4787,7 +4787,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                           eligibility_school: schoolId,
                           eligibility_programs: [],
                           eligibility_branches: [],
-                          intro_title: (!formData.intro_title || formData.intro_title === 'Kaun Banega Codepati') ? suggestedTitle : formData.intro_title
+                          intro_title: (!formData.intro_title || formData.intro_title === 'Kaun Banega Crorepati') ? suggestedTitle : formData.intro_title
                         });
                       }}
                     >

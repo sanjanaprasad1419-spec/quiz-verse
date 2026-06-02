@@ -1752,7 +1752,7 @@ class QuizLiveStateView(APIView):
             "quiz_id": quiz.id,
             "title": quiz.title,
             "status": quiz.status,
-            "intro_title": quiz.intro_title or "Kaun Banega Codepati",
+            "intro_title": quiz.intro_title or "Kaun Banega Crorepati",
             "current_stage": quiz.current_stage,
             "student_role": role,
             "batch_number": batch_number,

@@ -71,7 +71,7 @@ class Quiz(models.Model):
 
     max_participants = models.IntegerField(blank=True, null=True)
     registration_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    intro_title = models.CharField(max_length=200, default="Kaun Banega Codepati", blank=True)
+    intro_title = models.CharField(max_length=200, default="Kaun Banega Crorepati", blank=True)
 
     # Eligibility constraints
     allowed_schools = models.ManyToManyField(School, blank=True)

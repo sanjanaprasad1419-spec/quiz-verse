@@ -38,7 +38,7 @@ class NumberedCanvas(canvas.Canvas):
         
         # Header (Pages > 1)
         if self._pageNumber > 1:
-            self.drawString(54, 750, "KAUN BANEGA CODEPATI - OVERALL PERFORMANCE REPORT")
+            self.drawString(54, 750, "KAUN BANEGA CROREPATI - OVERALL PERFORMANCE REPORT")
             self.setStrokeColor(colors.HexColor("#cbd5e1"))
             self.setLineWidth(0.5)
             self.line(54, 742, 558, 742)
@@ -189,7 +189,7 @@ def generate_quiz_pdf_report(quiz_id):
     story = []
     
     # Title / Crest
-    story.append(Paragraph("KAUN BANEGA CODEPATI", title_style))
+    story.append(Paragraph("KAUN BANEGA CROREPATI", title_style))
     story.append(Paragraph(f"Official Performance Analysis • {quiz.title}", subtitle_style))
     
     # Event metadata block

@@ -3,9 +3,9 @@ import './KbcLogo.css';
 
 export default function KbcLogo({ title }) {
   // Parsing logic
-  const fullTitle = title || "Kaun Banega Codepati";
+  const fullTitle = title || "Kaun Banega Crorepati";
   let mainTitle = "KAUN BANEGA";
-  let goldTitle = "CODEPATI";
+  let goldTitle = "CROREPATI";
 
   const upperFull = fullTitle.toUpperCase().trim();
   if (upperFull.startsWith("KAUN BANEGA ")) {
