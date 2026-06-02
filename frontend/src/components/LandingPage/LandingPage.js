@@ -40,7 +40,6 @@ function LandingPage() {
             <h1 className="landing-title kbc-title-shimmer">QuizVerse</h1>
 
             <div className="landing-description">
-              <p className="desc-highlight">Monthly campus challenge.</p>
               <p className="desc-main">
                 The ultimate campus quiz arena — inspired by Kaun Banega Codepati. Compete live, climb the ladder, claim the title.
               </p>
