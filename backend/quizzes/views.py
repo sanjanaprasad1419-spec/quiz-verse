@@ -1002,9 +1002,36 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
         ).first()
 
         if not user:
-            return Response(
-                {"detail": "Student account not found. Please create the student account under 'Student Accounts' first."},
-                status=status.HTTP_400_BAD_REQUEST
+            from users.models import School, Program, Branch, StudentProfile
+            user = User.objects.create(
+                email=email,
+                full_name=full_name,
+                college_id=college_id.upper(),
+                roll_number=college_id.upper(),
+                role=User.Role.STUDENT
+            )
+            user.set_password("KBC123")
+            user.save()
+
+            # Ensure they have a student profile created automatically
+            school = School.objects.first()
+            if not school:
+                school = School.objects.create(school_name="Default School", school_code="DEFAULT_SCH")
+            
+            program = Program.objects.filter(school=school).first()
+            if not program:
+                program = Program.objects.create(school=school, program_name="Default Program", program_code="DEFAULT_PROG")
+            
+            branch = Branch.objects.filter(program=program).first()
+            if not branch:
+                branch = Branch.objects.create(program=program, branch_name="Default Branch", branch_code="DEFAULT_BR")
+
+            StudentProfile.objects.create(
+                user=user,
+                school=school,
+                program=program,
+                branch=branch,
+                year="1"
             )
 
         if user.role != User.Role.STUDENT:
