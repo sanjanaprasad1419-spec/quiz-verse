@@ -560,8 +560,8 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   useEffect(() => {
     const isFFF = newQuestionData.question_type.startsWith('fff_');
     if (isFFF) {
-      if (newQuestionData.choices.length < 8) {
-        const needed = 8 - newQuestionData.choices.length;
+      if (newQuestionData.choices.length < 4) {
+        const needed = 4 - newQuestionData.choices.length;
         const extra = Array.from({ length: needed }, (_, i) => ({
           text: '',
           is_correct: false,
@@ -570,6 +570,11 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         setNewQuestionData(prev => ({
           ...prev,
           choices: [...prev.choices, ...extra]
+        }));
+      } else if (newQuestionData.choices.length > 10) {
+        setNewQuestionData(prev => ({
+          ...prev,
+          choices: prev.choices.slice(0, 10)
         }));
       }
     } else {
@@ -1220,6 +1225,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       registration_close_date: '', registration_close_time: '', 
       max_participants: '100',
       registration_fee: '0', visible_to_students: false, is_registration_open: false,
+      status: 'draft',
       intro_title: 'Kaun Banega Crorepati',
       require_eligibility: false,
       eligibility_school: session?.user?.school_id || '',
@@ -1263,6 +1269,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       registration_fee: quiz.registration_fee ? quiz.registration_fee.toString() : '0',
       visible_to_students: quiz.visible_to_students || false,
       is_registration_open: quiz.is_registration_open || false,
+      status: quiz.status || 'draft',
       intro_title: quiz.intro_title || 'Kaun Banega Crorepati',
       require_eligibility: !!(quiz.allowed_schools?.length || quiz.allowed_programs?.length || quiz.allowed_branches?.length),
       eligibility_school: quiz.allowed_schools?.[0] || session?.user?.school_id || '',
@@ -1727,6 +1734,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       if (isDraft) {
         payload.visible_to_students = false;
         payload.is_registration_open = false;
+        payload.status = 'draft';
       }
 
       if (payload.event_date && payload.event_time) {
@@ -2696,10 +2704,67 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     <h2>Live KBC Console: <span style={{color: '#ffd700'}}>{kbcQuizDetail?.title}</span></h2>
                   </div>
                   <div className="kbc-console-status">
-                    <span className="kbc-status-pill">
-                      <span className="pulse-dot"></span>
-                      SYSTEM LIVE (Polling active)
+                    <span className="kbc-status-pill" style={{
+                      background: kbcQuizDetail?.status === 'live' ? 'rgba(76,175,80,0.15)' : 'rgba(255,179,0,0.15)',
+                      color: kbcQuizDetail?.status === 'live' ? '#98ff98' : '#ffb300',
+                      border: kbcQuizDetail?.status === 'live' ? '1px solid rgba(76,175,80,0.3)' : '1px solid rgba(255,179,0,0.3)',
+                      marginRight: '0.5rem'
+                    }}>
+                      <span className="pulse-dot" style={{ background: kbcQuizDetail?.status === 'live' ? '#4caf50' : '#ffb300' }}></span>
+                      {kbcQuizDetail?.status === 'live' ? 'EVENT LIVE' : `STANDBY (${kbcQuizDetail?.status?.replace('_', ' ').toUpperCase()})`}
                     </span>
+                    {kbcQuizDetail?.status !== 'live' ? (
+                      <button 
+                        className="kbc-refresh-btn" 
+                        onClick={async () => {
+                          try {
+                            setKbcLoading(true);
+                            await updateAdminQuiz(selectedKbcQuizId, { status: 'live' }, session?.token);
+                            await fetchKbcControllerData(selectedKbcQuizId);
+                            showBeautifulPopup("Event is Live!", "The quiz is now Live and participants can enter the arena.", "success");
+                          } catch(err) {
+                            alert(err.message || 'Failed to set quiz status to live');
+                          } finally {
+                            setKbcLoading(false);
+                          }
+                        }}
+                        style={{
+                          background: 'linear-gradient(135deg, #ff3d00 0%, #dd2c00 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 'bold',
+                          marginRight: '0.5rem',
+                          boxShadow: '0 2px 10px rgba(255, 61, 0, 0.4)',
+                        }}
+                      >
+                        🔴 GO LIVE
+                      </button>
+                    ) : (
+                      <button 
+                        className="kbc-refresh-btn" 
+                        onClick={async () => {
+                          try {
+                            setKbcLoading(true);
+                            await updateAdminQuiz(selectedKbcQuizId, { status: 'draft' }, session?.token);
+                            await fetchKbcControllerData(selectedKbcQuizId);
+                            showBeautifulPopup("Event Paused", "The quiz status is set to Draft. Students will be on Standby.", "info");
+                          } catch(err) {
+                            alert(err.message || 'Failed to set quiz status to draft');
+                          } finally {
+                            setKbcLoading(false);
+                          }
+                        }}
+                        style={{
+                          background: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 'bold',
+                          marginRight: '0.5rem',
+                        }}
+                      >
+                        ⏹️ STOP LIVE
+                      </button>
+                    )}
                     <button className="kbc-refresh-btn" onClick={() => fetchKbcControllerData(selectedKbcQuizId)} style={{ marginRight: '0.5rem' }}>
                       Force Sync
                     </button>
@@ -4934,6 +4999,24 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                 </div>
               </div>
 
+              <div style={{gridColumn: '1 / -1'}}>
+                <label className="admin-form-label">Event Status</label>
+                <select 
+                  className="admin-form-input" 
+                  value={formData.status || 'draft'} 
+                  onChange={e => setFormData({...formData, status: e.target.value})}
+                  style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--admin-border)', color: '#fff' }}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="registration_open">Registration Open</option>
+                  <option value="registration_closed">Registration Closed</option>
+                  <option value="live">Live</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
               {/* Toggles */}
               <div style={{display: 'flex', gap: '1.5rem', alignItems: 'center', gridColumn: '1 / -1', marginTop: '0.5rem', flexWrap: 'wrap'}}>
                 <label className="admin-checkbox-label">
@@ -5195,7 +5278,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                   
                   {newQuestionData.question_type.startsWith('fff_') && (
                     <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
-                      {newQuestionData.choices.length < 15 && (
+                      {newQuestionData.choices.length < 10 && (
                         <button
                           type="button"
                           className="dash-chip-btn"
@@ -5205,10 +5288,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                           }))}
                           style={{ borderColor: 'rgb(var(--admin-cyan-rgb))', color: 'rgb(var(--admin-cyan-rgb))' }}
                         >
-                          + Add FFF Option ({newQuestionData.choices.length}/15)
+                          + Add FFF Option ({newQuestionData.choices.length}/10)
                         </button>
                       )}
-                      {newQuestionData.choices.length > 8 && (
+                      {newQuestionData.choices.length > 4 && (
                         <button
                           type="button"
                           className="dash-chip-btn"
@@ -5578,7 +5661,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                 
                 {newQuestionData.question_type.startsWith('fff_') && (
                   <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
-                    {newQuestionData.choices.length < 15 && (
+                    {newQuestionData.choices.length < 10 && (
                       <button
                         type="button"
                         className="dash-chip-btn"
@@ -5588,10 +5671,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                         }))}
                         style={{ borderColor: 'rgb(var(--admin-cyan-rgb))', color: 'rgb(var(--admin-cyan-rgb))' }}
                       >
-                        + Add FFF Option ({newQuestionData.choices.length}/15)
+                        + Add FFF Option ({newQuestionData.choices.length}/10)
                       </button>
                     )}
-                    {newQuestionData.choices.length > 8 && (
+                    {newQuestionData.choices.length > 4 && (
                       <button
                         type="button"
                         className="dash-chip-btn"

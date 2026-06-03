@@ -209,6 +209,10 @@ function QuizArenaInner({ showBeautifulPopup }) {
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [submittingCategoryChoice, setSubmittingCategoryChoice] = useState(false);
 
+  const lastFetchedQuestionIndexRef = useRef(null);
+  const lastFetchedSwitchedRef = useRef(null);
+  const lastFetchedShowingRef = useRef(null);
+
   const handleHotseatTimeout = async () => {
     if (submittingHotseat) return;
     try {
@@ -424,7 +428,17 @@ function QuizArenaInner({ showBeautifulPopup }) {
       if (userSelectedRole === 'host') {
         loadHostHotseatQuestion();
       } else {
-        loadHotseatQuestion();
+        const attempt = liveState?.hotseat_attempt;
+        const indexChanged = lastFetchedQuestionIndexRef.current !== attempt?.current_question_index;
+        const switchedChanged = lastFetchedSwitchedRef.current !== attempt?.current_question_switched;
+        const showingChanged = lastFetchedShowingRef.current !== attempt?.showing_question;
+
+        if (!hotseatQuestion || indexChanged || switchedChanged || showingChanged) {
+          loadHotseatQuestion();
+          lastFetchedQuestionIndexRef.current = attempt?.current_question_index;
+          lastFetchedSwitchedRef.current = attempt?.current_question_switched;
+          lastFetchedShowingRef.current = attempt?.showing_question;
+        }
       }
     }
   }, [liveState, prelimQuestion, prelimInitialized, loading, userSelectedRole, fffAnswered, entryStage, isEntered]);
@@ -2507,6 +2521,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
       // Question loaded inline to keep UI layout stable during intro transition
 
       if (liveState?.hotseat_attempt && !liveState.hotseat_attempt.showing_question) {
+        const isFirstQuestion = liveState.hotseat_attempt.current_question_index === 0 && liveState.hotseat_attempt.score === 0;
         return (
           <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'} ${poweringOn ? 'arena-power-on' : ''}`}>
             {introComponent}
@@ -2518,19 +2533,33 @@ function QuizArenaInner({ showBeautifulPopup }) {
             {renderTopbar(`HOTSEAT LIVE: ${session?.user?.full_name}`, "HOTSEAT CONTENDER", false, 0, liveState?.hotseat_attempt?.score)}
 
             <div className="arena-center animate-fade-in" style={{ padding: '2rem' }}>
-              <div className="glass-card glow-green text-center" style={{ maxWidth: '600px', width: '95%', padding: '3.5rem', borderRadius: '16px', border: '1px solid rgba(76, 175, 80, 0.4)', background: 'rgba(76, 175, 80, 0.02)' }}>
-                <div style={{ fontSize: '4.5rem', marginBottom: '1.5rem', animation: 'scaleUp 0.3s ease' }}>🎉</div>
-                <h2 className="golden-glow" style={{ fontSize: '2.5rem', margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>CORRECT ANSWER!</h2>
-                <p style={{ fontSize: '1.25rem', color: '#fff', margin: '0 0 2rem 0', lineHeight: '1.6' }}>
-                  Congratulations! You have successfully answered the question. 
-                  <br />
-                  Total Points Earned: <strong className="winner-text" style={{ color: '#ffd700', fontSize: '1.5rem', textShadow: '0 0 10px rgba(255,215,0,0.5)' }}>{liveState.hotseat_attempt.score} pts</strong>
-                </p>
-                
-                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)', padding: '1rem', borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', fontWeight: 'bold' }}>
-                  ⏳ Awaiting the Host to push the next question...
+              {isFirstQuestion ? (
+                <div className="glass-card glow-blue text-center" style={{ maxWidth: '600px', width: '95%', padding: '3.5rem', borderRadius: '16px', border: '1px solid rgba(0, 191, 255, 0.4)', background: 'rgba(0, 191, 255, 0.02)' }}>
+                  <div style={{ fontSize: '4.5rem', marginBottom: '1.5rem', animation: 'scaleUp 0.3s ease' }}>🎙️</div>
+                  <h2 className="golden-glow" style={{ fontSize: '2.5rem', margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>WELCOME TO THE HOTSEAT!</h2>
+                  <p style={{ fontSize: '1.25rem', color: '#fff', margin: '0 0 2rem 0', lineHeight: '1.6' }}>
+                    Prepare yourself for the ultimate intelligence test. You are the live contender in the Hotseat!
+                  </p>
+                  
+                  <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)', padding: '1rem', borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                    ⏳ Awaiting the Host to present the first question...
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="glass-card glow-green text-center" style={{ maxWidth: '600px', width: '95%', padding: '3.5rem', borderRadius: '16px', border: '1px solid rgba(76, 175, 80, 0.4)', background: 'rgba(76, 175, 80, 0.02)' }}>
+                  <div style={{ fontSize: '4.5rem', marginBottom: '1.5rem', animation: 'scaleUp 0.3s ease' }}>🎉</div>
+                  <h2 className="golden-glow" style={{ fontSize: '2.5rem', margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>CORRECT ANSWER!</h2>
+                  <p style={{ fontSize: '1.25rem', color: '#fff', margin: '0 0 2rem 0', lineHeight: '1.6' }}>
+                    Congratulations! You have successfully answered the question. 
+                    <br />
+                    Total Points Earned: <strong className="winner-text" style={{ color: '#ffd700', fontSize: '1.5rem', textShadow: '0 0 10px rgba(255,215,0,0.5)' }}>{liveState.hotseat_attempt.score} pts</strong>
+                  </p>
+                  
+                  <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)', padding: '1rem', borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                    ⏳ Awaiting the Host to push the next question...
+                  </div>
+                </div>
+              )}
             </div>
           </main>
         );
@@ -2679,7 +2708,9 @@ function QuizArenaInner({ showBeautifulPopup }) {
                 ) : (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                      <span className="question-category-tag" style={{ margin: 0 }}>CATEGORY: {hotseatQuestion.category}</span>
+                      {liveState?.hotseat_attempt?.current_question_switched ? (
+                        <span className="question-category-tag" style={{ margin: 0 }}>CATEGORY: {hotseatQuestion.category}</span>
+                      ) : <div />}
                       {liveState?.hotseat_attempt?.current_question_switched && (
                         <span className="switched-badge animate-pulse" style={{ fontSize: '0.75rem', background: 'rgba(212,175,55,0.15)', border: '1px solid var(--dash-gold)', color: 'var(--dash-gold-bright)', padding: '0.2rem 0.6rem', borderRadius: '4px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.3rem', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>
                           🔄 SWITCHED QUESTION
@@ -3079,7 +3110,9 @@ function QuizArenaInner({ showBeautifulPopup }) {
                     </>
                   ) : (
                     <>
-                      <span className="question-category-tag">CATEGORY: {hotseatQuestion.category}</span>
+                      {liveState?.hotseat_attempt?.current_question_switched ? (
+                        <span className="question-category-tag">CATEGORY: {hotseatQuestion.category}</span>
+                      ) : null}
                       <article className="arena-question-card glass-card kbc-question-frame">
                         <h2>{hotseatQuestion.text}</h2>
                       </article>

@@ -105,7 +105,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 1,
                 "fff_1",
                 "History",
-                "Sanchi Stupa (E) -> Qutub Minar (C) -> Charminar (F) -> Taj Mahal (A) -> Red Fort (B) -> Hawa Mahal (G) -> Gateway of India (D) -> Victoria Memorial (H). FFF questions strictly require between 8 and 15 options (A to H minimum). Fill options consecutively without gaps. The Correct Sequence must list all defined option letters in order (e.g., ECFABGDH)."
+                "Sanchi Stupa (E) -> Qutub Minar (C) -> Charminar (F) -> Taj Mahal (A) -> Red Fort (B) -> Hawa Mahal (G) -> Gateway of India (D) -> Victoria Memorial (H). FFF questions strictly require between 4 and 10 options (A to D minimum). Fill options consecutively without gaps. The Correct Sequence must list all defined option letters in order (e.g., ECFABGDH)."
             ]
             filename = "fff_sequencing_template.xlsx"
         elif template_type == 'hotseat':
@@ -279,8 +279,8 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 
                 # Validation checks specific to FFF vs regular MCQ
                 if q_type.startswith('fff_'):
-                    if num_options < 8 or num_options > 15:
-                        error_log.append({"row": idx, "question": text[:40], "reason": f"Fastest Finger First questions must have between 8 and 15 options. Got {num_options}."})
+                    if num_options < 4 or num_options > 10:
+                        error_log.append({"row": idx, "question": text[:40], "reason": f"Fastest Finger First questions must have between 4 and 10 options. Got {num_options}."})
                         error_count += 1
                         continue
                     
@@ -1279,6 +1279,12 @@ class QuizAttemptStartView(APIView):
             return Response({"detail": "Payment required."}, status=403)
             
         attempt, created = QuizAttempt.objects.get_or_create(student=request.user, quiz=quiz)
+        if created or not attempt.question_ids:
+            import random
+            q_ids = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).values_list('id', flat=True))
+            random.shuffle(q_ids)
+            attempt.question_ids = q_ids
+            attempt.save(update_fields=['question_ids'])
         return Response({"attempt_id": attempt.id, "current_index": attempt.current_question_index})
 
 
@@ -1291,7 +1297,13 @@ class QuizAttemptNextQuestionView(APIView):
             return Response({"detail": "The quiz is not live yet."}, status=403)
         attempt = get_object_or_404(QuizAttempt, student=request.user, quiz=quiz)
         
-        questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
+        if attempt.question_ids:
+            preserved_order = {id_val: i for i, id_val in enumerate(attempt.question_ids)}
+            questions_queryset = quiz.questions.filter(id__in=attempt.question_ids)
+            questions = sorted(list(questions_queryset), key=lambda q: preserved_order.get(q.id, 99999))
+        else:
+            questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
+            
         if attempt.current_question_index >= len(questions):
             return Response({"completed": True})
             
@@ -1321,7 +1333,12 @@ class QuizAttemptSubmitAnswerView(APIView):
             return Response({"detail": "The quiz is not live yet."}, status=403)
         attempt = get_object_or_404(QuizAttempt, student=request.user, quiz=quiz)
         
-        questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
+        if attempt.question_ids:
+            preserved_order = {id_val: i for i, id_val in enumerate(attempt.question_ids)}
+            questions_queryset = quiz.questions.filter(id__in=attempt.question_ids)
+            questions = sorted(list(questions_queryset), key=lambda q: preserved_order.get(q.id, 99999))
+        else:
+            questions = list(quiz.questions.filter(question_type=Question.QuestionType.REGULAR).order_by('order', 'id'))
         if attempt.current_question_index >= len(questions):
             return Response({"detail": "Quiz already completed."}, status=400)
             

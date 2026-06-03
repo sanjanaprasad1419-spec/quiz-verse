@@ -200,6 +200,7 @@ class QuizAttempt(models.Model):
     completed_at = models.DateTimeField(blank=True, null=True)
     score = models.IntegerField(default=0)
     current_question_index = models.IntegerField(default=0)
+    question_ids = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -292,7 +293,7 @@ class HotseatAttempt(models.Model):
     # Cinematic timer & question visibility pacing
     timer_is_paused = models.BooleanField(default=False)
     options_visible = models.BooleanField(default=False)
-    showing_question = models.BooleanField(default=True)
+    showing_question = models.BooleanField(default=False)
     show_intro = models.BooleanField(default=False)
     intro_played = models.BooleanField(default=False)
 
