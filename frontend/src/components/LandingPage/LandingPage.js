@@ -70,19 +70,14 @@ function LandingPage() {
                   <line x1="60" y1="99" x2="390" y2="99" />
                 </g>
 
-                <text 
-                  x="225" 
-                  y="88" 
-                  textAnchor="middle" 
-                  fill="#E53935" 
-                  fontFamily="'Arial Black', 'Impact', sans-serif" 
-                  fontSize="92" 
-                  fontWeight="900" 
-                  letterSpacing="4"
-                  mask="url(#itm-stripe-mask)"
-                >
-                  ITM
-                </text>
+                <g mask="url(#itm-stripe-mask)" fill="#E53935">
+                  {/* Letter I */}
+                  <rect x="85" y="15" width="32" height="88" />
+                  {/* Letter T */}
+                  <path d="M 155,15 L 245,15 L 245,37 L 216,37 L 216,103 L 184,103 L 184,37 L 155,37 Z" />
+                  {/* Letter M */}
+                  <path d="M 283,15 L 316,15 L 324,65 L 332,15 L 365,15 L 365,103 L 335,103 L 335,50 L 324,90 L 313,50 L 313,103 L 283,103 Z" />
+                </g>
 
                 <text 
                   x="225" 
