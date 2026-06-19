@@ -32,12 +32,106 @@ function LandingPage() {
         <div className="kbc-hero-frame" aria-hidden="true" />
         <div className="landing-container">
           <div className="landing-content">
-            <div className="content-badge">
-              <span className="badge-pulse" />
-              ROUND ACCESS NOW OPEN
+            {/* ITM University Custom Vector Logo */}
+            <div className="itm-logo-container" style={{ width: '100%', maxWidth: '300px', margin: '0 auto 0.5rem auto' }}>
+              <svg 
+                viewBox="0 0 450 170" 
+                style={{ width: '100%', height: 'auto', filter: 'drop-shadow(0 4px 15px rgba(229, 57, 53, 0.15))' }}
+              >
+                <defs>
+                  <mask id="itm-stripe-mask">
+                    <rect x="0" y="0" width="450" height="170" fill="#ffffff" />
+                    <g stroke="#000000" strokeWidth="3">
+                      <line x1="0" y1="23" x2="450" y2="23" />
+                      <line x1="0" y1="31" x2="450" y2="31" />
+                      <line x1="0" y1="39" x2="450" y2="39" />
+                      <line x1="0" y1="47" x2="450" y2="47" />
+                      <line x1="0" y1="55" x2="450" y2="55" />
+                      <line x1="0" y1="63" x2="450" y2="63" />
+                      <line x1="0" y1="71" x2="450" y2="71" />
+                      <line x1="0" y1="79" x2="450" y2="79" />
+                      <line x1="0" y1="87" x2="450" y2="87" />
+                      <line x1="0" y1="95" x2="450" y2="95" />
+                    </g>
+                  </mask>
+                </defs>
+
+                <g stroke="#E53935" strokeWidth="1.5" opacity="0.85">
+                  <line x1="60" y1="19" x2="390" y2="19" />
+                  <line x1="60" y1="27" x2="390" y2="27" />
+                  <line x1="60" y1="35" x2="390" y2="35" />
+                  <line x1="60" y1="43" x2="390" y2="43" />
+                  <line x1="60" y1="51" x2="390" y2="51" />
+                  <line x1="60" y1="59" x2="390" y2="59" />
+                  <line x1="60" y1="67" x2="390" y2="67" />
+                  <line x1="60" y1="75" x2="390" y2="75" />
+                  <line x1="60" y1="83" x2="390" y2="83" />
+                  <line x1="60" y1="91" x2="390" y2="91" />
+                  <line x1="60" y1="99" x2="390" y2="99" />
+                </g>
+
+                <text 
+                  x="225" 
+                  y="88" 
+                  textAnchor="middle" 
+                  fill="#E53935" 
+                  fontFamily="'Arial Black', 'Impact', sans-serif" 
+                  fontSize="92" 
+                  fontWeight="900" 
+                  letterSpacing="4"
+                  mask="url(#itm-stripe-mask)"
+                >
+                  ITM
+                </text>
+
+                <text 
+                  x="225" 
+                  y="126" 
+                  textAnchor="middle" 
+                  fill="#FFD700" 
+                  fontFamily="'Montserrat', 'Arial', sans-serif" 
+                  fontSize="22" 
+                  fontWeight="800" 
+                  letterSpacing="9"
+                >
+                  UNIVERSITY
+                </text>
+
+                <text 
+                  x="225" 
+                  y="144" 
+                  textAnchor="middle" 
+                  fill="#FFFFFF" 
+                  fontFamily="'Arial', sans-serif" 
+                  fontSize="10" 
+                  fontWeight="bold" 
+                  letterSpacing="5"
+                  opacity="0.9"
+                >
+                  GWALIOR • MP • INDIA
+                </text>
+
+                <text 
+                  x="225" 
+                  y="162" 
+                  textAnchor="middle" 
+                  fill="#FFD700" 
+                  fontFamily="'Georgia', serif" 
+                  fontSize="11" 
+                  fontStyle="italic" 
+                  letterSpacing="3"
+                >
+                  "CELEBRATING DREAMS"
+                </text>
+              </svg>
             </div>
 
-            <h1 className="landing-title kbc-title-shimmer">QuizVerse</h1>
+            <div className="content-badge" style={{ marginTop: '0.5rem', marginBottom: '-0.5rem' }}>
+              <span className="badge-pulse" />
+              ITM UNIVERSITY PRESENTS
+            </div>
+
+            <h1 className="landing-title kbc-title-shimmer" style={{ fontSize: '4.5rem', margin: '0.3rem 0 0.8rem 0' }}>QuizVerse</h1>
 
             <div className="landing-description">
               <p className="desc-main">
