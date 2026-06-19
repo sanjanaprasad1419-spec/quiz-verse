@@ -27,7 +27,8 @@ import {
   getSwitchCategories,
   selectHotseatSwitchCategory,
   confirmHotseatSwitchCategory,
-  submitSpectatorVote
+  submitSpectatorVote,
+  pressBuzzer
 } from '../../api/quizzes';
 import { getAuthSession } from '../../api/auth';
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
@@ -97,11 +98,72 @@ function QuizArenaInner({ showBeautifulPopup }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [liveState, setLiveState] = useState(null);
+  const [buzzerTimeRemaining, setBuzzerTimeRemaining] = useState(15);
+  const [buzzerPressId, setBuzzerPressId] = useState('');
+  const [buzzerError, setBuzzerError] = useState('');
+  const [buzzerSuccess, setBuzzerSuccess] = useState('');
+  const [isBuzzingLocal, setIsBuzzingLocal] = useState(false);
 
   const liveStateRef = useRef(liveState);
   useEffect(() => {
     liveStateRef.current = liveState;
   }, [liveState]);
+
+  const prevActiveBuzzerIdRef = useRef(null);
+  const prevIncorrectBuzzersCountRef = useRef(null);
+
+  const playAudio = (src) => {
+    try {
+      const audio = new Audio(src);
+      audio.play().catch(e => console.warn("Audio play blocked or failed:", e));
+    } catch (e) {
+      console.warn("Audio playback not supported:", e);
+    }
+  };
+
+  useEffect(() => {
+    const activeBuzzerId = liveState?.buzzer_state?.active_buzzer_id;
+    if (activeBuzzerId && activeBuzzerId !== prevActiveBuzzerIdRef.current) {
+      playAudio('/press buzzzer.mp3');
+    }
+    prevActiveBuzzerIdRef.current = activeBuzzerId;
+  }, [liveState?.buzzer_state?.active_buzzer_id]);
+
+  useEffect(() => {
+    const incorrectList = liveState?.buzzer_state?.incorrect_buzzers || [];
+    if (prevIncorrectBuzzersCountRef.current !== null) {
+      if (incorrectList.length > prevIncorrectBuzzersCountRef.current) {
+        playAudio('/incorrect answer.mp3');
+      }
+    }
+    prevIncorrectBuzzersCountRef.current = incorrectList.length;
+  }, [liveState?.buzzer_state?.incorrect_buzzers]);
+
+
+
+  useEffect(() => {
+    let interval = null;
+    const bState = liveState?.buzzer_state;
+    if (bState?.is_timer_running && bState?.timer_started_at) {
+      const limit = bState.answer_timer_limit || 15;
+      const startedAt = new Date(bState.timer_started_at).getTime();
+      
+      const updateTimer = () => {
+        const now = Date.now();
+        const elapsed = (now - startedAt) / 1000;
+        const rem = Math.max(0, limit - elapsed);
+        setBuzzerTimeRemaining(rem);
+      };
+      
+      updateTimer();
+      interval = setInterval(updateTimer, 100);
+    } else {
+      setBuzzerTimeRemaining(bState?.answer_timer_limit || 15);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [liveState?.buzzer_state?.is_timer_running, liveState?.buzzer_state?.timer_started_at, liveState?.buzzer_state?.answer_timer_limit]);
 
   // Entry stage machine: 'role_selection', 'credentials', 'instructions', 'active'
   const [userSelectedRole, setUserSelectedRole] = useState(() => {
@@ -797,6 +859,38 @@ function QuizArenaInner({ showBeautifulPopup }) {
       await submitFFFAnswer(id, firstChoiceId, seconds, session?.token, fffSelectedSequence);
     } catch (err) {
       console.error("Error submitting FFF answer: ", err);
+    }
+  };
+
+  const handleBuzzerClick = async (customBuzzerId = null) => {
+    const bId = customBuzzerId || buzzerPressId;
+    if (!bId) {
+      setBuzzerError("Please select/enter a Buzzer ID.");
+      return;
+    }
+    
+    setBuzzerError("");
+    setBuzzerSuccess("");
+    setIsBuzzingLocal(true);
+    
+    try {
+      const session = getAuthSession();
+      const res = await pressBuzzer(id, bId, session?.token);
+      if (res.success) {
+        if (res.active_buzzer_id === bId) {
+          setBuzzerSuccess(`🚨 BOOM! You buzzed fastest! You have the turn!`);
+        } else {
+          setBuzzerSuccess(`Buzzer press registered! You are in the queue.`);
+        }
+        if (res.active_buzzer_id && res.active_buzzer_id !== prevActiveBuzzerIdRef.current) {
+          playAudio('/press buzzzer.mp3');
+          prevActiveBuzzerIdRef.current = res.active_buzzer_id;
+        }
+      }
+    } catch (err) {
+      setBuzzerError(err.message || "Buzzer press failed.");
+    } finally {
+      setIsBuzzingLocal(false);
     }
   };
 
@@ -1800,6 +1894,282 @@ function QuizArenaInner({ showBeautifulPopup }) {
         </section>
       </main>
     );
+  }
+
+  // Handle stage: Buzzer Round
+  const isBuzzerStage = liveState?.current_stage === 'buzzer_round';
+  if (isBuzzerStage) {
+    const isSpectatorOrHost = userSelectedRole === 'spectator' || userSelectedRole === 'host';
+    
+    if (isSpectatorOrHost) {
+      const bState = liveState.buzzer_state || {};
+      const activeQuestion = bState.current_question;
+      const mapping = bState.buzzer_mappings || {};
+      
+      const limit = bState.answer_timer_limit || 15;
+      const timerPercent = (buzzerTimeRemaining / limit) * 100;
+      const radius = 50;
+      const circumference = 2 * Math.PI * radius;
+      const strokeDashoffset = circumference - (timerPercent / 100) * circumference;
+
+      return (
+        <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'}`}>
+          <div className="arena-background">
+            <KbcStageFx intensity="lite" />
+            <div className="arena-orb orb-pink" />
+            <div className="arena-orb orb-cyan" />
+          </div>
+          {renderTopbar("🚨 BUZZER ROUND", "SPECTATOR DISPLAY")}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '2rem', padding: '1rem 3rem', height: 'calc(100vh - 120px)' }}>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2rem' }}>
+              {activeQuestion ? (
+                <>
+                  <div className="glass-card text-center" style={{ padding: '3rem 2rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '0.9rem', color: '#ffb300', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      {activeQuestion.category} • {activeQuestion.marks} Marks
+                    </span>
+                    <h2 className="title-text golden-glow font-bold" style={{ fontSize: '2.4rem', marginTop: '1rem', lineHeight: '1.3' }}>
+                      {activeQuestion.text}
+                    </h2>
+                  </div>
+
+                  {bState.options_visible ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                      {bState.choices?.map((choice, index) => {
+                        const letter = String.fromCharCode(65 + index);
+                        const isCorrect = choice.id === bState.correct_choice_id;
+                        const showCorrect = bState.answer_visible;
+                        
+                        return (
+                          <div 
+                            key={choice.id} 
+                            className={`kbc-option-container glass-card ${showCorrect && isCorrect ? 'correct-glow' : ''}`}
+                            style={{ 
+                              padding: '1.5rem', 
+                              borderRadius: '10px', 
+                              fontSize: '1.35rem', 
+                              color: showCorrect && isCorrect ? '#10b981' : 'white',
+                              border: showCorrect && isCorrect ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '1rem',
+                              background: showCorrect && isCorrect ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0,0,0,0.3)',
+                              transition: 'all 0.5s ease'
+                            }}
+                          >
+                            <span style={{ color: showCorrect && isCorrect ? '#10b981' : 'var(--kbc-sky)', fontWeight: 'bold' }}>{letter}:</span>
+                            <span>{choice.text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="glass-card text-center" style={{ padding: '2rem', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: '1.2rem' }}>
+                      Options are locked by Host. Awaiting reveal...
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '2rem', marginTop: '1rem', height: '180px' }}>
+                    {bState.active_buzzer_id ? (
+                      <div className="pulse-glow-red" style={{ background: 'rgba(244,63,94,0.1)', border: '2px solid #f43f5e', borderRadius: '12px', padding: '1.5rem 3rem', display: 'flex', alignItems: 'center', gap: '3rem' }}>
+                        <div>
+                          <div style={{ fontSize: '1rem', color: '#f43f5e', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.05em' }}>BUZZED! ACTIVE TURN</div>
+                          <h3 style={{ fontSize: '1.8rem', color: 'white', margin: '0.3rem 0' }}>Answering in Progress...</h3>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '1.5rem', color: 'var(--kbc-sky)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', animation: 'pulse 1.5s infinite ease-in-out' }}>
+                        🚨 Buzzers Active! PRESS NOW!
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="glass-card text-center" style={{ padding: '4rem 2rem' }}>
+                  <h2 className="title-text golden-glow">Buzzer Round</h2>
+                  <p style={{ fontSize: '1.2rem', marginTop: '1rem' }}>Standby... The Host will present the questions shortly.</p>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <h3 style={{ margin: '0 0 1rem 0', color: 'gold', fontSize: '1.4rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', textAlign: 'center' }}>
+                🏆 Scoreboard
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', overflowY: 'auto', flex: 1 }}>
+                {Object.entries(mapping)
+                  .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
+                  .map(([bId, details], rank) => {
+                    const isTop = rank === 0;
+                    return (
+                      <div 
+                        key={bId} 
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          background: isTop ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.02)', 
+                          border: isTop ? '1px solid gold' : '1px solid rgba(255,255,255,0.05)', 
+                          padding: '0.8rem 1rem', 
+                          borderRadius: '8px' 
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <span style={{ fontWeight: 'bold', color: isTop ? 'gold' : 'rgba(255,255,255,0.4)' }}>#{rank + 1}</span>
+                          <span style={{ fontWeight: 'bold', color: isTop ? 'white' : 'rgba(255,255,255,0.8)' }}>
+                            {details.name}
+                          </span>
+                        </div>
+                        <span style={{ fontWeight: 'bold', color: 'gold' }}>
+                          {details.score || 0} pts
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+          </div>
+        </main>
+      );
+    } else {
+      const bState = liveState.buzzer_state || {};
+      const isBlocked = bState.incorrect_buzzers?.includes(buzzerPressId);
+      const amIActiveTurn = bState.active_buzzer_id === buzzerPressId && buzzerPressId !== '';
+
+      return (
+        <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'}`}>
+          <div className="arena-background">
+            <KbcStageFx intensity="lite" />
+            <div className="arena-orb orb-pink" />
+            <div className="arena-orb orb-cyan" />
+          </div>
+          {renderTopbar("🚨 LIVE BUZZER PODIUM", "PARTICIPANT PORTAL")}
+
+          <div className="arena-center" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2rem', padding: '1rem 2rem' }}>
+            
+            {!buzzerPressId ? (
+              <div className="glass-card text-center glow-pink" style={{ padding: '2.5rem', borderRadius: '16px', maxWidth: '450px', width: '100%' }}>
+                <h3 className="title-text golden-glow font-bold" style={{ fontSize: '1.6rem', marginBottom: '1rem' }}>Podium Setup</h3>
+                <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.7)', marginBottom: '1.5rem' }}>
+                  Select your Podium / Buzzer number (1 to 15) to connect this screen.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.6rem', marginBottom: '1.5rem' }}>
+                  {Array.from({ length: 15 }, (_, i) => i + 1).map(num => (
+                    <button
+                      key={num}
+                      onClick={() => setBuzzerPressId(String(num))}
+                      style={{
+                        padding: '0.6rem 0',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '6px',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseOver={e => e.currentTarget.style.borderColor = 'var(--kbc-sky)'}
+                      onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', width: '100%', maxWidth: '500px' }}>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1.2rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                    <strong style={{ fontSize: '0.9rem' }}>Buzzer #{buzzerPressId}</strong>
+                    <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>
+                      ({bState.buzzer_mappings?.[buzzerPressId]?.name || 'Unmapped'})
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => { setBuzzerPressId(''); setBuzzerError(''); setBuzzerSuccess(''); }}
+                    style={{ background: 'none', border: 'none', color: '#f43f5e', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+
+                {buzzerError && <div className="glass-card" style={{ width: '100%', background: 'rgba(244,63,94,0.12)', border: '1px solid #f43f5e', color: '#f43f5e', padding: '0.8rem', borderRadius: '6px', textAlign: 'center', fontSize: '0.85rem' }}>{buzzerError}</div>}
+                {buzzerSuccess && <div className="glass-card" style={{ width: '100%', background: 'rgba(16,185,129,0.12)', border: '1px solid #10b981', color: '#10b981', padding: '0.8rem', borderRadius: '6px', textAlign: 'center', fontSize: '0.85rem' }}>{buzzerSuccess}</div>}
+
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
+                  
+                  {isBlocked ? (
+                    <div className="glass-card text-center" style={{ padding: '3rem 2rem', border: '2px solid #ef4444', background: 'rgba(239,68,68,0.1)' }}>
+                      <span style={{ fontSize: '3rem' }}>🚫</span>
+                      <h3 style={{ color: '#ef4444', margin: '0.8rem 0 0 0', fontWeight: 'bold' }}>EXCLUDED</h3>
+                      <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginTop: '0.4rem' }}>Your team answered incorrectly on this question.</p>
+                    </div>
+                  ) : amIActiveTurn ? (
+                    <div className="glass-card text-center pulse-glow-red" style={{ padding: '3.5rem 2rem', border: '2px solid #ef4444', background: 'rgba(239,68,68,0.1)' }}>
+                      <span style={{ fontSize: '3.5rem' }}>🎤</span>
+                      <h3 style={{ color: '#ffcc00', margin: '0.8rem 0 0 0', fontWeight: 'bold', fontSize: '1.6rem' }}>YOUR TURN TO ANSWER!</h3>
+                      <p style={{ color: 'white', fontSize: '0.9rem', marginTop: '0.5rem' }}>Present your answer to the host.</p>
+                    </div>
+                  ) : (() => {
+                    const hasAlreadyBuzzed = bState.presses?.some(p => String(p.buzzer_id) === String(buzzerPressId));
+                    return (
+                      <>
+                        <button
+                          disabled={hasAlreadyBuzzed || isBuzzingLocal}
+                          onClick={() => handleBuzzerClick(buzzerPressId)}
+                          style={{
+                            width: '240px',
+                            height: '240px',
+                            borderRadius: '50%',
+                            background: hasAlreadyBuzzed
+                              ? 'radial-gradient(circle, #2e7d32 0%, #1b5e20 100%)'
+                              : 'radial-gradient(circle, #ff2a4b 0%, #b3001e 100%)',
+                            border: hasAlreadyBuzzed
+                              ? '10px solid #4caf50'
+                              : '10px solid #ff6b81',
+                            boxShadow: hasAlreadyBuzzed
+                              ? '0 0 35px rgba(76, 175, 80, 0.8), inset 0 0 20px rgba(255,255,255,0.4)'
+                              : '0 0 35px rgba(255, 42, 75, 0.8), inset 0 0 20px rgba(255,255,255,0.4)',
+                            color: 'white',
+                            fontSize: '2rem',
+                            fontWeight: '900',
+                            letterSpacing: '0.05em',
+                            cursor: hasAlreadyBuzzed ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.3s ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            gap: '0.5rem'
+                          }}
+                        >
+                          <span>{hasAlreadyBuzzed ? '✔️' : '🚨'}</span>
+                          <span>{hasAlreadyBuzzed ? 'BUZZED' : 'BUZZ'}</span>
+                        </button>
+
+                        <div style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.5)', marginTop: '1rem', textAlign: 'center' }}>
+                          {hasAlreadyBuzzed 
+                            ? 'Your press is registered. Wait for the host to review.' 
+                            : 'Buzzers are active! Click the big button to buzz in!'}
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        </main>
+      );
+    }
   }
 
   // Handle stage: Fastest Finger First (fff_batch_1, fff_batch_2, fff_batch_3)

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from users.serializers import UserPublicSerializer
 
-from quizzes.models import Quiz, QuizRegistration, Question, SwitchCategory, SystemPreferences
+from quizzes.models import Quiz, QuizRegistration, Question, SwitchCategory, SystemPreferences, BuzzerState, BuzzerPress
 
 
 class QuizSerializer(serializers.ModelSerializer):
@@ -52,10 +52,10 @@ class QuizSerializer(serializers.ModelSerializer):
         return obj.questions.count()
 
     def get_prelim_questions_count(self, obj):
-        return obj.questions.filter(question_type='prelim').count()
+        return obj.questions.filter(question_type='regular').count()
 
     def get_fff_questions_count(self, obj):
-        return obj.questions.filter(question_type='fff').count()
+        return obj.questions.filter(question_type__in=['fff_1', 'fff_2', 'fff_3']).count()
 
     def get_hotseat_1_questions_count(self, obj):
         return obj.questions.filter(question_type='hotseat_1').count()
@@ -195,5 +195,42 @@ class SystemPreferencesSerializer(serializers.ModelSerializer):
             'hotseat_q6_q10_limit',
             'auto_approve_registrations',
         ]
+
+
+class BuzzerPressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BuzzerPress
+        fields = ['id', 'quiz', 'question', 'buzzer_id', 'pressed_at', 'time_taken_seconds']
+
+
+class BuzzerStateSerializer(serializers.ModelSerializer):
+    current_question = QuestionSerializer(read_only=True)
+    current_question_text = serializers.CharField(source='current_question.text', read_only=True)
+    choices = ChoiceSerializer(source='current_question.choices', many=True, read_only=True)
+    correct_choice_id = serializers.SerializerMethodField()
+    presses = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BuzzerState
+        fields = [
+            'id', 'quiz', 'current_question', 'current_question_text', 'choices', 
+            'answer_timer_limit', 'buzzer_count', 'timer_started_at', 'timer_paused_at', 
+            'is_timer_running', 'buzzers_locked', 'options_visible', 
+            'answer_visible', 'buzzer_mappings', 'incorrect_buzzers', 
+            'active_buzzer_id', 'correct_choice_id', 'presses'
+        ]
+
+    def get_correct_choice_id(self, obj):
+        if obj.current_question:
+            correct = obj.current_question.choices.filter(is_correct=True).first()
+            return correct.id if correct else None
+        return None
+
+    def get_presses(self, obj):
+        if obj.current_question:
+            presses = obj.quiz.buzzer_presses.filter(question=obj.current_question).order_by('pressed_at', 'id')
+            return BuzzerPressSerializer(presses, many=True).data
+        return []
+
 
 

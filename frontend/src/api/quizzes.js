@@ -358,4 +358,51 @@ export function saveSystemPreferences(payload, token) {
   }, token);
 }
 
+export function pressBuzzer(id, buzzerId, token) {
+  return request(`/quizzes/${id}/press-buzzer/`, {
+    method: 'POST',
+    body: JSON.stringify({ buzzer_id: buzzerId }),
+  }, token);
+}
+
+export function buzzerInit(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_init/`, { method: 'POST' }, token);
+}
+
+export function buzzerNextQuestion(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_next_question/`, { method: 'POST' }, token);
+}
+
+export function buzzerRelease(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_release/`, { method: 'POST' }, token);
+}
+
+export function buzzerAnswerCorrect(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_answer_correct/`, { method: 'POST' }, token);
+}
+
+export function buzzerAnswerIncorrect(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_answer_incorrect/`, { method: 'POST' }, token);
+}
+
+export function buzzerReset(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_reset/`, { method: 'POST' }, token);
+}
+
+export function buzzerUpdateMappings(id, mappings, timerLimit, buzzerCount, token) {
+  return request(`/quizzes/admin/${id}/buzzer_update_mappings/`, {
+    method: 'POST',
+    body: JSON.stringify({ mappings, timer_limit: timerLimit, buzzer_count: buzzerCount }),
+  }, token);
+}
+
+export function buzzerRevealOptions(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_reveal_options/`, { method: 'POST' }, token);
+}
+
+export function buzzerRevealAnswer(id, token) {
+  return request(`/quizzes/admin/${id}/buzzer_reveal_answer/`, { method: 'POST' }, token);
+}
+
+
 

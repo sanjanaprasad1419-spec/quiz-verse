@@ -38,6 +38,16 @@ from quizzes.views import (
     SystemPreferencesView,
     SpectatorVoteView,
     QuizDetailedReportView,
+    PressBuzzerView,
+    BuzzerInitView,
+    BuzzerNextQuestionView,
+    BuzzerReleaseView,
+    BuzzerAnswerCorrectView,
+    BuzzerAnswerIncorrectView,
+    BuzzerResetView,
+    BuzzerUpdateMappingsView,
+    BuzzerRevealOptionsView,
+    BuzzerRevealAnswerView,
 )
 
 router = DefaultRouter()
@@ -87,6 +97,18 @@ urlpatterns = [
     path('admin/<int:pk>/trigger_intro/', AdminTriggerIntroView.as_view(), name='quiz-admin-trigger-intro'),
     path('admin/<int:pk>/complete_intro/', AdminCompleteIntroView.as_view(), name='quiz-admin-complete-intro'),
     path('admin/<int:pk>/confirm_switch_lifeline/', AdminConfirmSwitchLifelineView.as_view(), name='quiz-admin-confirm-switch-lifeline'),
+
+    # KBC Buzzer Round routes
+    path('<int:pk>/press-buzzer/', PressBuzzerView.as_view(), name='quiz-press-buzzer'),
+    path('admin/<int:pk>/buzzer_init/', BuzzerInitView.as_view(), name='quiz-admin-buzzer-init'),
+    path('admin/<int:pk>/buzzer_next_question/', BuzzerNextQuestionView.as_view(), name='quiz-admin-buzzer-next-question'),
+    path('admin/<int:pk>/buzzer_release/', BuzzerReleaseView.as_view(), name='quiz-admin-buzzer-release'),
+    path('admin/<int:pk>/buzzer_answer_correct/', BuzzerAnswerCorrectView.as_view(), name='quiz-admin-buzzer-answer-correct'),
+    path('admin/<int:pk>/buzzer_answer_incorrect/', BuzzerAnswerIncorrectView.as_view(), name='quiz-admin-buzzer-answer-incorrect'),
+    path('admin/<int:pk>/buzzer_reset/', BuzzerResetView.as_view(), name='quiz-admin-buzzer-reset'),
+    path('admin/<int:pk>/buzzer_update_mappings/', BuzzerUpdateMappingsView.as_view(), name='quiz-admin-buzzer-update-mappings'),
+    path('admin/<int:pk>/buzzer_reveal_options/', BuzzerRevealOptionsView.as_view(), name='quiz-admin-buzzer-reveal-options'),
+    path('admin/<int:pk>/buzzer_reveal_answer/', BuzzerRevealAnswerView.as_view(), name='quiz-admin-buzzer-reveal-answer'),
 
     # Router URLs last to avoid overriding specific student routes
     path('', include(router.urls)),

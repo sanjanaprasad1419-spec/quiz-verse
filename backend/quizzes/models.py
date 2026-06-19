@@ -34,6 +34,7 @@ class Quiz(models.Model):
     class Stage(models.TextChoices):
         REGULAR = "regular", "Regular Preliminary Quiz"
         BATCH_SELECTION = "batch_selection", "Selecting Top 30 and Batches"
+        BUZZER_ROUND = "buzzer_round", "Buzzer Round"
         FFF_BATCH_1 = "fff_batch_1", "Fastest Finger First - Batch 1"
         HOTSEAT_BATCH_1 = "hotseat_batch_1", "Hotseat - Batch 1"
         FFF_BATCH_2 = "fff_batch_2", "Fastest Finger First - Batch 2"
@@ -165,6 +166,7 @@ class Question(models.Model):
         HOTSEAT_2 = "hotseat_2", "Hotseat (Batch 2)"
         HOTSEAT_3 = "hotseat_3", "Hotseat (Batch 3)"
         SWITCH = "switch", "Switch Question"
+        BUZZER = "buzzer", "Buzzer Round Question"
 
 
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
@@ -356,6 +358,42 @@ class SpectatorPollVote(models.Model):
 
     def __str__(self):
         return f"{self.student.full_name} voted for {self.choice.text} on Q{self.question.order}"
+
+
+class BuzzerState(models.Model):
+    quiz = models.OneToOneField(Quiz, on_delete=models.CASCADE, related_name="buzzer_state")
+    current_question = models.ForeignKey(Question, on_delete=models.SET_NULL, null=True, blank=True)
+    answer_timer_limit = models.IntegerField(default=15)
+    timer_started_at = models.DateTimeField(null=True, blank=True)
+    timer_paused_at = models.DateTimeField(null=True, blank=True)
+    is_timer_running = models.BooleanField(default=False)
+    buzzers_locked = models.BooleanField(default=True)
+    options_visible = models.BooleanField(default=False)
+    answer_visible = models.BooleanField(default=False)
+    buzzer_count = models.IntegerField(default=15)  # How many buzzers are active in this session
+    buzzer_mappings = models.JSONField(default=dict, blank=True)  # Format: {"1": {"name": "Team A", "score": 0, "team_id": 1}, ...}
+    incorrect_buzzers = models.JSONField(default=list, blank=True)  # List of buzzer IDs that have failed
+    active_buzzer_id = models.CharField(max_length=50, null=True, blank=True, default=None)
+
+    def __str__(self):
+        return f"{self.quiz.title} Buzzer Round State"
+
+
+class BuzzerPress(models.Model):
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="buzzer_presses")
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    buzzer_id = models.CharField(max_length=50)
+    pressed_at = models.DateTimeField(auto_now_add=True)
+    time_taken_seconds = models.FloatField(default=0.0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["quiz", "question", "buzzer_id"], name="unique_buzzer_press_per_question")
+        ]
+
+    def __str__(self):
+        return f"Buzzer {self.buzzer_id} - Q{self.question.order} ({self.time_taken_seconds}s)"
+
 
 
 

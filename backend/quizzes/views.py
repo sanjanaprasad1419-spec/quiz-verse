@@ -14,8 +14,8 @@ from django.db import transaction
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
-from quizzes.models import Quiz, QuizRegistration, Question, Choice, QuizAttempt, StudentAnswer, FFFAnswer, HotseatAttempt, SwitchCategory, SystemPreferences
-from quizzes.serializers import QuizRegistrationSerializer, QuizSerializer, FFFAnswerSerializer, HotseatAttemptSerializer, QuestionSerializer, EnrolledStudentSerializer, SystemPreferencesSerializer
+from quizzes.models import Quiz, QuizRegistration, Question, Choice, QuizAttempt, StudentAnswer, FFFAnswer, HotseatAttempt, SwitchCategory, SystemPreferences, BuzzerState, BuzzerPress
+from quizzes.serializers import QuizRegistrationSerializer, QuizSerializer, FFFAnswerSerializer, HotseatAttemptSerializer, QuestionSerializer, EnrolledStudentSerializer, SystemPreferencesSerializer, BuzzerStateSerializer, BuzzerPressSerializer
 from quizzes.services import process_mock_payment, register_student_for_quiz
 from django.utils import timezone
 import random
@@ -108,6 +108,26 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 "Sanchi Stupa (E) -> Qutub Minar (C) -> Charminar (F) -> Taj Mahal (A) -> Red Fort (B) -> Hawa Mahal (G) -> Gateway of India (D) -> Victoria Memorial (H). FFF questions strictly require between 4 and 10 options (A to D minimum). Fill options consecutively without gaps. The Correct Sequence must list all defined option letters in order (e.g., ECFABGDH)."
             ]
             filename = "fff_sequencing_template.xlsx"
+        elif template_type == 'buzzer':
+            ws.title = "Buzzer Round Template"
+            headers = [
+                'Question Text', 'Option A', 'Option B', 'Option C', 'Option D', 
+                'Correct Option (A/B/C/D)', 'Marks', 
+                'Question Type (buzzer)', 'Category', 'Trivia'
+            ]
+            sample_row = [
+                "Which planet is known as the Red Planet?",
+                "Venus",
+                "Mars",
+                "Jupiter",
+                "Saturn",
+                "B",
+                1,
+                "buzzer",
+                "Astronomy",
+                "Mars is called the Red Planet because of iron oxide on its surface. INSTRUCTIONS: Buzzer Round questions require exactly 4 options (A to D) and the Question Type must be set to 'buzzer'."
+            ]
+            filename = "buzzer_round_template.xlsx"
         elif template_type == 'hotseat':
             ws.title = "Hotseat MCQ Template"
             headers = [
@@ -1525,8 +1545,12 @@ class StudentTeamViewSet(viewsets.ModelViewSet):
         if not QuizRegistration.objects.filter(quiz=team.quiz, student=request.user).exists():
             return Response({"detail": "You must be registered for this quiz to join this team."}, status=400)
             
+        if team.members.count() + 1 >= 4:
+            return Response({"detail": "This team has reached its maximum size of 4 members."}, status=400)
+            
         team.members.add(request.user)
         return Response({"detail": "Successfully joined team!"})
+
 
 
 # Student KBC Event views
@@ -1674,7 +1698,6 @@ class QuizLiveStateView(APIView):
                 if attempt.pending_lifeline_type == 'poll' and attempt.lifeline_request_status == 'approved':
                     from quizzes.models import SpectatorPollVote
                     from django.utils.dateparse import parse_datetime
-                    from django.utils import timezone
                     
                     approved_data = attempt.approved_lifeline_data or {}
                     poll_start_time_str = approved_data.get('poll_start_time')
@@ -1790,6 +1813,29 @@ class QuizLiveStateView(APIView):
         b2_resolved = resolve_players_list(quiz.batch_2_players)
         b3_resolved = resolve_players_list(quiz.batch_3_players)
 
+        # Buzzer state resolution
+        buzzer_state_data = None
+        if quiz.current_stage == Quiz.Stage.BUZZER_ROUND:
+            b_state, created = BuzzerState.objects.get_or_create(quiz=quiz)
+            updated = False
+            if created or not b_state.buzzer_mappings:
+                b_state.buzzer_mappings = {str(i): {"name": f"Podium {i}", "score": 0} for i in range(1, 16)}
+                updated = True
+            if not b_state.current_question:
+                q = Question.objects.filter(quiz=quiz, question_type=Question.QuestionType.BUZZER).order_by('order', 'id').first()
+                if q:
+                    b_state.current_question = q
+                    updated = True
+            if b_state.is_timer_running and b_state.timer_started_at:
+                elapsed = (timezone.now() - b_state.timer_started_at).total_seconds()
+                if elapsed >= b_state.answer_timer_limit:
+                    b_state.is_timer_running = False
+                    b_state.buzzers_locked = True
+                    updated = True
+            if updated:
+                b_state.save()
+            buzzer_state_data = BuzzerStateSerializer(b_state).data
+
         prefs = SystemPreferences.get_solo()
 
         return Response({
@@ -1802,6 +1848,7 @@ class QuizLiveStateView(APIView):
             "batch_number": batch_number,
             "is_in_active_batch": is_in_active_batch,
             "hotseat_attempt": hotseat_attempt_data,
+            "buzzer_state": buzzer_state_data,
             "stage_display": quiz.get_current_stage_display(),
             "fff_question": fff_question_data,
             "fff_answered": fff_answered,
@@ -2992,6 +3039,241 @@ class QuizDetailedReportView(APIView):
         response = HttpResponse(pdf_data, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="kbc_report_{quiz.id}.pdf"'
         return response
+
+
+class BuzzerInitView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state, created = BuzzerState.objects.get_or_create(quiz=quiz)
+        if not state.buzzer_mappings:
+            state.buzzer_mappings = {str(i): {"name": f"Podium {i}", "score": 0} for i in range(1, 16)}
+            state.save(update_fields=['buzzer_mappings'])
+        if not state.current_question:
+            q = Question.objects.filter(quiz=quiz, question_type=Question.QuestionType.BUZZER).order_by('order', 'id').first()
+            if q:
+                state.current_question = q
+                state.save(update_fields=['current_question'])
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerNextQuestionView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        questions = list(Question.objects.filter(quiz=quiz, question_type=Question.QuestionType.BUZZER).order_by('order', 'id'))
+        if not questions:
+            return Response({"detail": "No Buzzer Round questions found."}, status=400)
+        
+        curr_q = state.current_question
+        next_q = None
+        if not curr_q:
+            next_q = questions[0]
+        else:
+            try:
+                curr_idx = questions.index(curr_q)
+                if curr_idx + 1 < len(questions):
+                    next_q = questions[curr_idx + 1]
+                else:
+                    return Response({"detail": "You are already at the last Buzzer question."}, status=400)
+            except ValueError:
+                next_q = questions[0]
+        
+        state.current_question = next_q
+        state.buzzers_locked = True
+        state.is_timer_running = False
+        state.timer_started_at = None
+        state.timer_paused_at = None
+        state.incorrect_buzzers = []
+        state.active_buzzer_id = None
+        state.options_visible = False
+        state.answer_visible = False
+        state.save()
+        
+        BuzzerPress.objects.filter(quiz=quiz, question=next_q).delete()
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerReleaseView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        if not state.current_question:
+            return Response({"detail": "No active question selected."}, status=400)
+        
+        state.buzzers_locked = False
+        state.active_buzzer_id = None
+        state.is_timer_running = False
+        state.timer_started_at = None
+        state.timer_paused_at = None
+        state.save()
+        
+        BuzzerPress.objects.filter(quiz=quiz, question=state.current_question).delete()
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerAnswerCorrectView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        active_buzzer = state.active_buzzer_id
+        if not active_buzzer:
+            return Response({"detail": "No active buzzer is currently selected to answer."}, status=400)
+            
+        mappings = state.buzzer_mappings or {}
+        if active_buzzer in mappings:
+            points = state.current_question.marks if state.current_question else 1
+            mappings[active_buzzer]["score"] = mappings[active_buzzer].get("score", 0) + points
+            state.buzzer_mappings = mappings
+            
+        state.buzzers_locked = True
+        state.is_timer_running = False
+        state.answer_visible = True
+        state.active_buzzer_id = None  # Clear so the answering panel hides
+        state.save()
+        
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerAnswerIncorrectView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        active_buzzer = state.active_buzzer_id
+        if not active_buzzer:
+            return Response({"detail": "No active buzzer is currently selected."}, status=400)
+            
+        incorrect = state.incorrect_buzzers or []
+        if active_buzzer not in incorrect:
+            incorrect.append(active_buzzer)
+            state.incorrect_buzzers = incorrect
+            
+        state.active_buzzer_id = None
+        state.is_timer_running = False
+        state.timer_started_at = None
+        state.timer_paused_at = None
+        state.buzzers_locked = False
+        state.save()
+        
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerResetView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        state.buzzers_locked = True
+        state.is_timer_running = False
+        state.timer_started_at = None
+        state.timer_paused_at = None
+        state.incorrect_buzzers = []
+        state.active_buzzer_id = None
+        state.options_visible = False
+        state.answer_visible = False
+        state.save()
+        
+        BuzzerPress.objects.filter(quiz=quiz, question=state.current_question).delete()
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerUpdateMappingsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        mappings = request.data.get('mappings')
+        timer_limit = request.data.get('timer_limit')
+        buzzer_count = request.data.get('buzzer_count')
+        
+        if mappings is not None:
+            state.buzzer_mappings = mappings
+        if timer_limit is not None:
+            state.answer_timer_limit = int(timer_limit)
+        if buzzer_count is not None:
+            state.buzzer_count = max(1, min(30, int(buzzer_count)))
+            
+        state.save()
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerRevealOptionsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        state.options_visible = not state.options_visible
+        state.save(update_fields=['options_visible'])
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class BuzzerRevealAnswerView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        state = get_object_or_404(BuzzerState, quiz=quiz)
+        state.answer_visible = not state.answer_visible
+        state.save(update_fields=['answer_visible'])
+        return Response(BuzzerStateSerializer(state).data)
+
+
+class PressBuzzerView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        if quiz.current_stage != Quiz.Stage.BUZZER_ROUND:
+            return Response({"detail": "Quiz is not in Buzzer Round stage."}, status=400)
+            
+        state, _ = BuzzerState.objects.get_or_create(quiz=quiz)
+            
+        if not state.current_question:
+            return Response({"detail": "No active question is selected."}, status=400)
+            
+        buzzer_id = str(request.data.get('buzzer_id', '')).strip()
+        if not buzzer_id:
+            return Response({"detail": "Buzzer ID is required."}, status=400)
+            
+        if buzzer_id in (state.incorrect_buzzers or []):
+            return Response({"detail": "This buzzer has already answered incorrectly and is blocked."}, status=400)
+            
+        if BuzzerPress.objects.filter(quiz=quiz, question=state.current_question, buzzer_id=buzzer_id).exists():
+            return Response({"detail": "Buzzer already registered."}, status=400)
+            
+        BuzzerPress.objects.create(
+            quiz=quiz,
+            question=state.current_question,
+            buzzer_id=buzzer_id,
+            time_taken_seconds=0.0
+        )
+        
+        if not state.active_buzzer_id:
+            state.active_buzzer_id = buzzer_id
+            state.buzzers_locked = True
+            state.is_timer_running = True
+            state.timer_started_at = timezone.now()
+            state.timer_paused_at = None
+            state.save()
+            
+        return Response({
+            "success": True,
+            "detail": "Buzzer press registered successfully!",
+            "active_buzzer_id": state.active_buzzer_id
+        })
+
 
 
 

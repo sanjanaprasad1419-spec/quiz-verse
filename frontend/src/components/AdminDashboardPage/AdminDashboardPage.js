@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getAuthSession, saveAuthSession, getSchools, getProgramsBySchool, getBranchesByProgram, updateUserCredentials, getAdminStudents, createAdminStudent, deleteAdminStudent, bulkUploadStudents, downloadStudentTemplate, updateAdminStudent, getSchoolAdmins, createSchoolAdmin, updateSchoolAdmin, deleteSchoolAdmin } from '../../api/auth';
 import {
@@ -25,7 +25,17 @@ import {
   saveAdminSwitchCategory,
   deleteAdminSwitchCategory,
   getSystemPreferences,
-  saveSystemPreferences
+  saveSystemPreferences,
+  buzzerInit,
+  buzzerNextQuestion,
+  buzzerRelease,
+  buzzerAnswerCorrect,
+  buzzerAnswerIncorrect,
+  buzzerReset,
+  buzzerUpdateMappings,
+  buzzerRevealOptions,
+  buzzerRevealAnswer,
+  getTeams
 } from '../../api/quizzes';
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
 import './AdminDashboardPage.css';
@@ -151,6 +161,13 @@ const AlertIcon = ({ size = 20, ...props }) => (
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
     <line x1="12" y1="9" x2="12" y2="13" />
     <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const BuzzerIcon = ({ size = 20, ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
   </svg>
 );
 
@@ -619,6 +636,44 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const [batch2Input, setBatch2Input] = useState('');
   const [batch3Input, setBatch3Input] = useState('');
   const [showManualStages, setShowManualStages] = useState(false);
+  const [buzzerTeams, setBuzzerTeams] = useState([]);
+  const [editingMappings, setEditingMappings] = useState({});
+  const [answerTimerLimit, setAnswerTimerLimit] = useState(15);
+  const [buzzerCount, setBuzzerCount] = useState(15);
+  const [isBuzzerMappingEdit, setIsBuzzerMappingEdit] = useState(false);
+  const isBuzzerMappingEditRef = useRef(false);
+
+  const prevActiveBuzzerIdRef = useRef(null);
+  const prevIncorrectBuzzersCountRef = useRef(null);
+
+  const playAudio = (src) => {
+    try {
+      const audio = new Audio(src);
+      audio.play().catch(e => console.warn("Audio play blocked or failed:", e));
+    } catch (e) {
+      console.warn("Audio playback not supported:", e);
+    }
+  };
+
+  useEffect(() => {
+    const activeBuzzerId = kbcLiveState?.buzzer_state?.active_buzzer_id;
+    if (activeBuzzerId && activeBuzzerId !== prevActiveBuzzerIdRef.current) {
+      playAudio('/press buzzzer.mp3');
+    }
+    prevActiveBuzzerIdRef.current = activeBuzzerId;
+  }, [kbcLiveState?.buzzer_state?.active_buzzer_id]);
+
+  useEffect(() => {
+    const incorrectList = kbcLiveState?.buzzer_state?.incorrect_buzzers || [];
+    if (prevIncorrectBuzzersCountRef.current !== null) {
+      if (incorrectList.length > prevIncorrectBuzzersCountRef.current) {
+        playAudio('/incorrect answer.mp3');
+      }
+    }
+    prevIncorrectBuzzersCountRef.current = incorrectList.length;
+  }, [kbcLiveState?.buzzer_state?.incorrect_buzzers]);
+
+
 
   const targetBatchSize = (() => {
     if (kbcQuizDetail?.batch_1_players && kbcQuizDetail.batch_1_players.length > 0) {
@@ -876,6 +931,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const KBC_STAGES = [
     { value: 'regular', label: 'Preliminary Quiz' },
     { value: 'batch_selection', label: 'Batch Configuration' },
+    { value: 'buzzer_round', label: 'Buzzer Round' },
     { value: 'fff_batch_1', label: 'FFF — Batch 1' },
     { value: 'hotseat_batch_1', label: 'Hotseat — Batch 1' },
     { value: 'fff_batch_2', label: 'FFF — Batch 2' },
@@ -887,18 +943,20 @@ function AdminDashboardInner({ showBeautifulPopup }) {
 
   const KBC_PHASES = [
     { num: 1, label: 'Prelims', icon: <PrelimsIcon />, desc: 'Active preliminary MCQ round' },
-    { num: 2, label: 'Batch Setup', icon: <SettingsIcon />, desc: 'Define FFF contestant groupings' },
-    { num: 3, label: 'FFF Round', icon: <LightningIcon />, desc: 'Run FFF speed test' },
-    { num: 4, label: 'Hotseat', icon: <MicrophoneIcon />, desc: 'Main KBC Game Arena live' },
-    { num: 5, label: 'Concluded', icon: <TrophyIcon />, desc: 'View podium and final standings' }
+    { num: 2, label: 'Batch Setup', icon: <SettingsIcon />, desc: 'Define FFF groupings' },
+    { num: 3, label: 'Buzzer Round', icon: <BuzzerIcon />, desc: 'Live hardware buzzer stage' },
+    { num: 4, label: 'FFF Round', icon: <LightningIcon />, desc: 'Run FFF speed test' },
+    { num: 5, label: 'Hotseat', icon: <MicrophoneIcon />, desc: 'Main KBC Game Arena live' },
+    { num: 6, label: 'Concluded', icon: <TrophyIcon />, desc: 'View podium and final standings' }
   ];
 
   const getActivePhaseNum = (stage) => {
     if (!stage || stage === 'regular') return 1;
     if (stage === 'batch_selection') return 2;
-    if (stage.startsWith('fff_')) return 3;
-    if (stage.startsWith('hotseat_')) return 4;
-    if (stage === 'completed') return 5;
+    if (stage === 'buzzer_round') return 3;
+    if (stage.startsWith('fff_')) return 4;
+    if (stage.startsWith('hotseat_')) return 5;
+    if (stage === 'completed') return 6;
     return 1;
   };
 
@@ -931,6 +989,13 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       try {
         const liveState = await getQuizLiveState(quizId, token);
         setKbcLiveState(liveState);
+        if (liveState.buzzer_state) {
+          if (!isBuzzerMappingEditRef.current) {
+            setEditingMappings(liveState.buzzer_state.buzzer_mappings || {});
+            setAnswerTimerLimit(liveState.buzzer_state.answer_timer_limit || 15);
+            setBuzzerCount(liveState.buzzer_state.buzzer_count || Object.keys(liveState.buzzer_state.buzzer_mappings || {}).length || 15);
+          }
+        }
       } catch (e) {
         console.error("Error fetching KBC live state:", e);
       }
@@ -955,6 +1020,16 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         }
       } else {
         setFffResultsData(null);
+      }
+
+      if (detail.current_stage === 'buzzer_round') {
+        try {
+          const allTeams = await getTeams(token);
+          const filteredTeams = allTeams.filter(t => t.quiz === quizId);
+          setBuzzerTeams(filteredTeams);
+        } catch (e) {
+          console.error("Error fetching teams for buzzer round:", e);
+        }
       }
 
 
@@ -1000,6 +1075,32 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     }
   }, [kbcQuizDetail?.id]);
 
+  const [buzzerTimeRemaining, setBuzzerTimeRemaining] = useState(15);
+
+  useEffect(() => {
+    let interval = null;
+    const bState = kbcLiveState?.buzzer_state;
+    if (bState?.is_timer_running && bState?.timer_started_at) {
+      const limit = bState.answer_timer_limit || 15;
+      const startedAt = new Date(bState.timer_started_at).getTime();
+      
+      const updateTimer = () => {
+        const now = Date.now();
+        const elapsed = (now - startedAt) / 1000;
+        const rem = Math.max(0, limit - elapsed);
+        setBuzzerTimeRemaining(rem);
+      };
+      
+      updateTimer();
+      interval = setInterval(updateTimer, 100);
+    } else {
+      setBuzzerTimeRemaining(bState?.answer_timer_limit || 15);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [kbcLiveState?.buzzer_state?.is_timer_running, kbcLiveState?.buzzer_state?.timer_started_at, kbcLiveState?.buzzer_state?.answer_timer_limit]);
+
   const handleUpdateStage = async (stage) => {
     try {
       setKbcLoading(true);
@@ -1043,6 +1144,130 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       await fetchKbcControllerData(selectedKbcQuizId);
     } catch (err) {
       alert(err.message || 'Failed to save batches');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerInit = async () => {
+    try {
+      setKbcLoading(true);
+      const data = await buzzerInit(selectedKbcQuizId, session?.token);
+      setEditingMappings(data.buzzer_mappings || {});
+      setAnswerTimerLimit(data.answer_timer_limit || 15);
+      await fetchKbcControllerData(selectedKbcQuizId);
+      alert('Buzzer Round state initialized successfully!');
+    } catch (err) {
+      alert(err.message || 'Failed to initialize buzzer round');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerNext = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerNextQuestion(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to advance buzzer question');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerRelease = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerRelease(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to release buzzers');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerCorrect = async () => {
+    try {
+      setKbcLoading(true);
+      playAudio('/correct answer.mp3');
+      await buzzerAnswerCorrect(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to mark correct');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerIncorrect = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerAnswerIncorrect(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+      alert('Answer marked incorrect! Buzzers re-enabled for remaining teams.');
+    } catch (err) {
+      alert(err.message || 'Failed to mark incorrect');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerReset = () => {
+    showBeautifulPopup(
+      'Reset Buzzer State',
+      'Are you sure you want to reset the buzzer state for this question? This will clear all recorded presses.',
+      'warning',
+      async () => {
+        try {
+          setKbcLoading(true);
+          await buzzerReset(selectedKbcQuizId, session?.token);
+          await fetchKbcControllerData(selectedKbcQuizId);
+        } catch (err) {
+          alert(err.message || 'Failed to reset question');
+        } finally {
+          setKbcLoading(false);
+        }
+      },
+      () => {}
+    );
+  };
+
+  const handleBuzzerSaveMappings = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerUpdateMappings(selectedKbcQuizId, editingMappings, answerTimerLimit, buzzerCount, session?.token);
+      isBuzzerMappingEditRef.current = false;
+      setIsBuzzerMappingEdit(false);
+      await fetchKbcControllerData(selectedKbcQuizId);
+      alert('Buzzer settings saved successfully!');
+    } catch (err) {
+      alert(err.message || 'Failed to save mappings');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerRevealOptions = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerRevealOptions(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to toggle options reveal');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
+  const handleBuzzerRevealAnswer = async () => {
+    try {
+      setKbcLoading(true);
+      await buzzerRevealAnswer(selectedKbcQuizId, session?.token);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to toggle answer reveal');
     } finally {
       setKbcLoading(false);
     }
@@ -1097,7 +1322,19 @@ function AdminDashboardInner({ showBeautifulPopup }) {
           actions: [
             "Click '⚡ Auto-Generate Batches' to group the top 30% of scorers into equal batches.",
             "Adjust user IDs manually if desired, then click '💾 Lock & Save Batches'.",
-            "When batches are locked, click 'Advance Event Phase' below to start FFF Batch 1."
+            "When batches are locked, click 'Advance Event Phase' below to start the Buzzer Round."
+          ],
+          nextLabel: "Buzzer Round"
+        };
+      case 'buzzer_round':
+        return {
+          title: "Buzzer Round Phase",
+          desc: "Manage the live Buzzer Round questions, mapping of podium buzzers, and scoreboard.",
+          actions: [
+            "Initialize the buzzer round state if not done yet.",
+            "Display the active buzzer round question on the spectator display.",
+            "Release/unlock the buzzers when you are ready for teams to buzz.",
+            "Once answered correct or incorrect, click 'Advance Event Phase' below to proceed to FFF Round."
           ],
           nextLabel: "FFF — Batch 1"
         };
@@ -1673,33 +1910,39 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     }
   };
 
-  const handleDeleteSwitchCategory = async (categoryId) => {
+  const handleDeleteSwitchCategory = (categoryId) => {
     if (!selectedManageQuiz) return;
-    if (!window.confirm('Are you sure you want to delete this switch category?')) return;
-    
-    try {
-      await deleteAdminSwitchCategory(selectedManageQuiz.id, categoryId, session?.token);
-      alert('Switch Category deleted successfully!');
-      
-      const list = await getAdminSwitchCategories(selectedManageQuiz.id, session?.token);
-      setAdminSwitchCategories(list);
-      
-      if (editingSwitchCategory && editingSwitchCategory.id === categoryId) {
-        setEditingSwitchCategory(null);
-        setSwitchCategoryForm({
-          name: '',
-          question_text: '',
-          choice_a: '',
-          choice_b: '',
-          choice_c: '',
-          choice_d: '',
-          correct_choice: 'A',
-          image: null
-        });
-      }
-    } catch (err) {
-      alert(err.message || 'Failed to delete category');
-    }
+    showBeautifulPopup(
+      'Delete Switch Category',
+      'Are you sure you want to delete this switch category?',
+      'warning',
+      async () => {
+        try {
+          await deleteAdminSwitchCategory(selectedManageQuiz.id, categoryId, session?.token);
+          alert('Switch Category deleted successfully!');
+          
+          const list = await getAdminSwitchCategories(selectedManageQuiz.id, session?.token);
+          setAdminSwitchCategories(list);
+          
+          if (editingSwitchCategory && editingSwitchCategory.id === categoryId) {
+            setEditingSwitchCategory(null);
+            setSwitchCategoryForm({
+              name: '',
+              question_text: '',
+              choice_a: '',
+              choice_b: '',
+              choice_c: '',
+              choice_d: '',
+              correct_choice: 'A',
+              image: null
+            });
+          }
+        } catch (err) {
+          alert(err.message || 'Failed to delete category');
+        }
+      },
+      () => {}
+    );
   };
 
   const handleTriggerIntro = async () => {
@@ -2305,6 +2548,13 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                   </button>
                   <button 
                     className="dash-chip-btn" 
+                    onClick={() => handleDownloadTemplate('buzzer')}
+                    style={{borderColor: 'rgba(239,71,111,0.4)', color: '#ef476f', cursor: 'pointer', padding: '0.8rem 1.2rem', fontSize: '0.9rem', borderRadius: '8px'}}
+                  >
+                    <DownloadIcon size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} /> BUZZER TEMPLATE
+                  </button>
+                  <button 
+                    className="dash-chip-btn" 
                     onClick={handleCreateNewClick}
                     style={{background: 'rgb(var(--admin-cyan-rgb))', color: '#000', border: 'none', fontWeight: 'bold', padding: '0.8rem 1.5rem', fontSize: '1rem', cursor: 'pointer', borderRadius: '8px'}}
                   >
@@ -2794,7 +3044,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                   <div className="kbc-roadmap-track" />
                   <div 
                     className="kbc-roadmap-track-fill" 
-                    style={{ width: `${((getActivePhaseNum(kbcQuizDetail?.current_stage) - 1) / 4) * 100}%` }}
+                    style={{ width: `${((getActivePhaseNum(kbcQuizDetail?.current_stage) - 1) / 5) * 100}%` }}
                   />
                   <div className="kbc-roadmap-steps">
                     {KBC_PHASES.map((phase) => {
@@ -2806,9 +3056,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       // Find first stage value for this phase to support clickable phase navigation shortcuts
                       let targetStageVal = 'regular';
                       if (phase.num === 2) targetStageVal = 'batch_selection';
-                      else if (phase.num === 3) targetStageVal = 'fff_batch_1';
-                      else if (phase.num === 4) targetStageVal = 'hotseat_batch_1';
-                      else if (phase.num === 5) targetStageVal = 'completed';
+                      else if (phase.num === 3) targetStageVal = 'buzzer_round';
+                      else if (phase.num === 4) targetStageVal = 'fff_batch_1';
+                      else if (phase.num === 5) targetStageVal = 'hotseat_batch_1';
+                      else if (phase.num === 6) targetStageVal = 'completed';
 
                       return (
                         <button
@@ -3272,6 +3523,421 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                             </table>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Buzzer Round Stage */}
+                    {kbcQuizDetail?.current_stage === 'buzzer_round' && (
+                      <div className="kbc-panel context-panel" style={{ overflow: 'visible' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h3>🚨 Buzzer Round Live Control Room</h3>
+                          {!kbcLiveState?.buzzer_state ? (
+                            <button className="kbc-save-btn" onClick={handleBuzzerInit} disabled={kbcLoading}>
+                              Initialize Buzzer Round
+                            </button>
+                          ) : (
+                            <button 
+                              className="kbc-secondary-btn" 
+                              onClick={() => {
+                                const next = !isBuzzerMappingEdit;
+                                isBuzzerMappingEditRef.current = next;
+                                setIsBuzzerMappingEdit(next);
+                                if (next) {
+                                  setEditingMappings(kbcLiveState.buzzer_state.buzzer_mappings || {});
+                                  setAnswerTimerLimit(kbcLiveState.buzzer_state.answer_timer_limit || 15);
+                                }
+                              }}
+                            >
+                              {isBuzzerMappingEdit ? '❌ Cancel Settings Edit' : '⚙️ Edit Buzzer Mappings & Timer'}
+                            </button>
+                          )}
+                        </div>
+                        <p className="panel-subtitle">Manage hardware buzzer mappings, view click speed rankings, and evaluate player answers.</p>
+
+                        {kbcLiveState?.buzzer_state && (
+                          <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            
+                            {/* SETTINGS / MAPPINGS EDIT MODE */}
+                            {isBuzzerMappingEdit && (
+                              <div className="kbc-panel sub-panel" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', overflow: 'visible' }}>
+                                <h4>⚙️ Edit Buzzer Settings</h4>
+                                <div style={{ marginBottom: '1rem' }}>
+                                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', marginBottom: '0.3rem' }}>
+                                    Answer Timer Limit (Seconds):
+                                  </label>
+                                  <input 
+                                    type="number" 
+                                    className="admin-form-input" 
+                                    style={{ width: '120px' }}
+                                    value={answerTimerLimit}
+                                    onChange={e => {
+                                      const val = parseInt(e.target.value);
+                                      if (!isNaN(val)) setAnswerTimerLimit(Math.max(1, val));
+                                    }}
+                                  />
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '1rem 0 0.5rem 0' }}>
+                                  <h5 style={{ margin: 0 }}>Buzzer-to-Team/Player Allocation ({buzzerCount} Buzzer{buzzerCount !== 1 ? 's' : ''})</h5>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>Count:</span>
+                                    <button
+                                      style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'white', fontSize: '1rem', cursor: buzzerCount <= 1 ? 'not-allowed' : 'pointer', opacity: buzzerCount <= 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}
+                                      onClick={() => setBuzzerCount(c => Math.max(1, c - 1))}
+                                      disabled={buzzerCount <= 1}
+                                    >−</button>
+                                    <span style={{ minWidth: '28px', textAlign: 'center', fontWeight: 'bold', fontSize: '0.95rem', color: 'var(--admin-cyan)' }}>{buzzerCount}</span>
+                                    <button
+                                      style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'white', fontSize: '1rem', cursor: buzzerCount >= 30 ? 'not-allowed' : 'pointer', opacity: buzzerCount >= 30 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}
+                                      onClick={() => setBuzzerCount(c => Math.min(30, c + 1))}
+                                      disabled={buzzerCount >= 30}
+                                    >+</button>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                                  {Array.from({ length: buzzerCount }, (_, i) => i + 1).map(bNum => {
+                                    const bStr = String(bNum);
+                                    const currentMap = editingMappings[bStr] || { name: '', score: 0, team_id: '' };
+                                    
+                                    return (
+                                      <div key={bNum} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <strong style={{ fontSize: '0.8rem', color: 'var(--admin-cyan)' }}>Buzzer #{bNum}</strong>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                            <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>Score:</span>
+                                            <input 
+                                              type="number" 
+                                              style={{ width: '55px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.1rem 0.3rem', fontSize: '0.75rem' }}
+                                              value={currentMap.score}
+                                              onChange={e => {
+                                                setEditingMappings({
+                                                  ...editingMappings,
+                                                  [bStr]: { ...currentMap, score: parseInt(e.target.value) || 0 }
+                                                });
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                          <select 
+                                            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.2rem', fontSize: '0.75rem' }}
+                                            value={currentMap.team_id || ''}
+                                            onChange={e => {
+                                              const selectedTeamId = e.target.value;
+                                              const selectedTeam = buzzerTeams.find(t => String(t.id) === selectedTeamId);
+                                              setEditingMappings({
+                                                ...editingMappings,
+                                                [bStr]: { 
+                                                  ...currentMap, 
+                                                  team_id: selectedTeamId,
+                                                  name: selectedTeam ? selectedTeam.name : (currentMap.name || `Podium ${bNum}`)
+                                                }
+                                              });
+                                            }}
+                                          >
+                                            <option value="">-- Associate Team --</option>
+                                            {buzzerTeams.map(t => (
+                                              <option key={t.id} value={t.id}>{t.name}</option>
+                                            ))}
+                                          </select>
+                                          <input 
+                                            type="text" 
+                                            placeholder="Custom Name"
+                                            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
+                                            value={currentMap.name || ''}
+                                            onChange={e => {
+                                              setEditingMappings({
+                                                ...editingMappings,
+                                                [bStr]: { ...currentMap, name: e.target.value }
+                                              });
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                <div style={{ marginTop: '1.2rem', display: 'flex', justifyContent: 'flex-end', gap: '0.8rem' }}>
+                                  <button className="kbc-save-btn" onClick={handleBuzzerSaveMappings}>
+                                    💾 Save Settings
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* MAIN ACTIVE PLAYING GRID */}
+                            {!isBuzzerMappingEdit && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+                                
+                                {/* LEFT WORKSPACE: ACTIVE QUESTION AND PLAYER CONTROL */}
+                                <div>
+                                  {kbcLiveState.buzzer_state.current_question ? (
+                                    <div className="kbc-panel sub-panel" style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                                        <span style={{ fontSize: '0.7rem', color: '#ffb300', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                          Question #{kbcLiveState.buzzer_state.current_question.order} • {kbcLiveState.buzzer_state.current_question.category}
+                                        </span>
+                                        <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>
+                                          Value: {kbcLiveState.buzzer_state.current_question.marks} pts
+                                        </span>
+                                      </div>
+                                      <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0 0 1rem 0', lineHeight: '1.4' }}>
+                                        {kbcLiveState.buzzer_state.current_question.text}
+                                      </h3>
+
+                                      {/* Options */}
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.8rem', marginBottom: '1.5rem' }}>
+                                        {kbcLiveState.buzzer_state.choices?.map((c, idx) => {
+                                          const isCorrect = c.id === kbcLiveState.buzzer_state.correct_choice_id;
+                                          return (
+                                            <div 
+                                              key={c.id} 
+                                              style={{ 
+                                                background: isCorrect ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.02)',
+                                                border: isCorrect ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.08)',
+                                                borderRadius: '6px',
+                                                padding: '0.6rem 0.8rem',
+                                                fontSize: '0.85rem',
+                                                color: isCorrect ? '#10b981' : 'white',
+                                                fontWeight: isCorrect ? 'bold' : 'normal'
+                                              }}
+                                            >
+                                              <strong>{String.fromCharCode(65 + idx)}:</strong> {c.text}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Controls actions bar */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                                        
+                                        {/* Status flags */}
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', marginBottom: '0.5rem' }}>
+                                          <div>Options Revealed: <strong style={{ color: kbcLiveState.buzzer_state.options_visible ? '#10b981' : '#f43f5e' }}>{kbcLiveState.buzzer_state.options_visible ? 'YES' : 'NO'}</strong></div>
+                                          <div>Answer Revealed: <strong style={{ color: kbcLiveState.buzzer_state.answer_visible ? '#10b981' : '#f43f5e' }}>{kbcLiveState.buzzer_state.answer_visible ? 'YES' : 'NO'}</strong></div>
+                                          <div>Buzzers Locked: <strong style={{ color: kbcLiveState.buzzer_state.buzzers_locked ? '#ffb300' : '#10b981' }}>{kbcLiveState.buzzer_state.buzzers_locked ? 'LOCKED' : 'ACTIVE / OPEN'}</strong></div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+                                          <button 
+                                            className="kbc-secondary-btn" 
+                                            onClick={handleBuzzerRevealOptions}
+                                            style={{ flex: 1, minWidth: '130px' }}
+                                          >
+                                            {kbcLiveState.buzzer_state.options_visible ? '🙈 Hide Options' : '👁️ Reveal Options'}
+                                          </button>
+                                          
+                                          <button 
+                                            className="kbc-secondary-btn" 
+                                            onClick={handleBuzzerRevealAnswer}
+                                            style={{ flex: 1, minWidth: '130px' }}
+                                          >
+                                            {kbcLiveState.buzzer_state.answer_visible ? '🙈 Hide Answer' : '👁️ Reveal Answer'}
+                                          </button>
+
+                                          <button 
+                                            className="kbc-secondary-btn" 
+                                            style={{ 
+                                              flex: 1.5, 
+                                              minWidth: '170px', 
+                                              background: kbcLiveState.buzzer_state.buzzers_locked ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)', 
+                                              border: kbcLiveState.buzzer_state.buzzers_locked ? '1px solid #10b981' : '1px solid #f43f5e',
+                                              color: kbcLiveState.buzzer_state.buzzers_locked ? '#10b981' : '#f43f5e'
+                                            }}
+                                            onClick={handleBuzzerRelease}
+                                          >
+                                            {kbcLiveState.buzzer_state.buzzers_locked ? '🚨 RELEASE / OPEN BUZZERS' : '🔒 LOCK BUZZERS'}
+                                          </button>
+                                        </div>
+
+                                        {/* ACTIVE ANSWERING BLOCK */}
+                                        {kbcLiveState.buzzer_state.active_buzzer_id && (
+                                          <div 
+                                            className="pulse-glow-red" 
+                                            style={{ 
+                                              marginTop: '1rem', 
+                                              background: 'rgba(244, 63, 94, 0.12)', 
+                                              border: '2px dashed #f43f5e', 
+                                              borderRadius: '8px', 
+                                              padding: '1rem', 
+                                              textAlign: 'center' 
+                                            }}
+                                          >
+                                            <div style={{ fontSize: '0.8rem', color: '#f43f5e', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
+                                              🔥 Team Answering
+                                            </div>
+                                            <h3 style={{ fontSize: '1.4rem', margin: '0.2rem 0', color: 'white' }}>
+                                              {kbcLiveState.buzzer_state.buzzer_mappings[kbcLiveState.buzzer_state.active_buzzer_id]?.name || `Buzzer #${kbcLiveState.buzzer_state.active_buzzer_id}`}
+                                            </h3>
+
+
+                                            <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                              <button 
+                                                className="kbc-save-btn" 
+                                                style={{ flex: 1, background: '#10b981', borderColor: '#10b981', color: 'white' }}
+                                                onClick={handleBuzzerCorrect}
+                                              >
+                                                ✔️ Correct Answer (+{kbcLiveState.buzzer_state.current_question.marks} pts)
+                                              </button>
+                                              <button 
+                                                className="kbc-secondary-btn" 
+                                                style={{ flex: 1, background: '#ef4444', borderColor: '#ef4444', color: 'white' }}
+                                                onClick={handleBuzzerIncorrect}
+                                              >
+                                                ❌ Incorrect / Timeout (Re-open)
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.5rem' }}>
+                                          <button 
+                                            className="kbc-secondary-btn" 
+                                            style={{ flex: 1, borderColor: 'rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)', fontSize: '0.8rem' }}
+                                            onClick={handleBuzzerReset}
+                                          >
+                                            🔄 Reset
+                                          </button>
+                                          
+                                          <button 
+                                            style={{ 
+                                              flex: 3,
+                                              background: kbcLiveState.buzzer_state.answer_visible
+                                                ? 'linear-gradient(135deg, #f59e0b, #fbbf24)'
+                                                : 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                                              border: '2px solid ' + (kbcLiveState.buzzer_state.answer_visible ? '#f59e0b' : '#06b6d4'),
+                                              color: kbcLiveState.buzzer_state.answer_visible ? '#000' : '#fff',
+                                              fontSize: kbcLiveState.buzzer_state.answer_visible ? '1rem' : '0.9rem',
+                                              fontWeight: '900',
+                                              padding: '0.75rem 1.2rem',
+                                              borderRadius: '6px',
+                                              cursor: 'pointer',
+                                              letterSpacing: '0.05em',
+                                              boxShadow: kbcLiveState.buzzer_state.answer_visible
+                                                ? '0 0 24px rgba(245,158,11,0.7), 0 4px 15px rgba(0,0,0,0.4)'
+                                                : '0 0 14px rgba(6,182,212,0.5), 0 4px 12px rgba(0,0,0,0.3)',
+                                              transition: 'all 0.2s ease',
+                                            }}
+                                            onClick={handleBuzzerNext}
+                                          >
+                                            {kbcLiveState.buzzer_state.answer_visible ? '⏭️ NEXT QUESTION →' : '⏭️ Next Buzzer Question'}
+                                          </button>
+                                        </div>
+
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                                      No question set. Add Buzzer questions to this quiz.
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* RIGHT WORKSPACE: LIVE PRESSED QUEUE & BLOCKED LIST */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                  
+                                  <div className="kbc-panel sub-panel" style={{ flex: 1, background: 'rgba(0,0,0,0.1)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <h4 style={{ margin: '0 0 0.8rem 0', color: 'var(--admin-cyan)' }}>📶 Live Buzzer Press Queue</h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '250px', overflowY: 'auto' }}>
+                                      {!kbcLiveState.buzzer_state.presses || kbcLiveState.buzzer_state.presses.length === 0 ? (
+                                        <div style={{ padding: '1rem 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
+                                          {kbcLiveState.buzzer_state.buzzers_locked ? '🔒 Buzzers are locked' : '📡 Waiting for clicks...'}
+                                        </div>
+                                      ) : (
+                                        kbcLiveState.buzzer_state.presses.map((press, pIdx) => {
+                                          const buzzerNum = press.buzzer_id;
+                                          const buzzerMap = kbcLiveState.buzzer_state.buzzer_mappings[buzzerNum] || {};
+                                          const isWinner = pIdx === 0;
+                                          
+                                          return (
+                                            <div 
+                                              key={press.id} 
+                                              style={{ 
+                                                display: 'flex', 
+                                                justifyContent: 'space-between', 
+                                                alignItems: 'center', 
+                                                background: isWinner ? 'rgba(0, 212, 255, 0.1)' : 'rgba(255,255,255,0.03)',
+                                                border: isWinner ? '1px solid var(--admin-cyan)' : '1px solid rgba(255,255,255,0.05)',
+                                                borderRadius: '6px',
+                                                padding: '0.5rem 0.6rem',
+                                                fontSize: '0.78rem'
+                                              }}
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <span style={{ fontWeight: 'bold', color: isWinner ? 'var(--admin-cyan)' : 'rgba(255,255,255,0.5)' }}>#{pIdx + 1}</span>
+                                                <strong style={{ color: isWinner ? 'white' : 'rgba(255,255,255,0.8)' }}>
+                                                  {buzzerMap.name || `Buzzer #${buzzerNum}`}
+                                                </strong>
+                                              </div>
+                                              <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace' }}>
+                                                {new Date(press.pressed_at).toLocaleTimeString()}
+                                              </span>
+                                            </div>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="kbc-panel sub-panel" style={{ background: 'rgba(0,0,0,0.1)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <h4 style={{ margin: '0 0 0.6rem 0', color: '#f43f5e' }}>🚫 Excluded (Incorrect Answer)</h4>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                      {!kbcLiveState.buzzer_state.incorrect_buzzers || kbcLiveState.buzzer_state.incorrect_buzzers.length === 0 ? (
+                                        <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>No teams excluded for this question yet.</span>
+                                      ) : (
+                                        kbcLiveState.buzzer_state.incorrect_buzzers.map(bId => (
+                                          <span 
+                                            key={bId} 
+                                            style={{ 
+                                              background: 'rgba(244,63,94,0.1)', 
+                                              border: '1px solid rgba(244,63,94,0.3)', 
+                                              color: '#f43f5e', 
+                                              fontSize: '0.7rem', 
+                                              padding: '0.2rem 0.5rem', 
+                                              borderRadius: '4px',
+                                              fontWeight: 'bold' 
+                                            }}
+                                          >
+                                            {kbcLiveState.buzzer_state.buzzer_mappings[bId]?.name || `Buzzer #${bId}`}
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="kbc-panel sub-panel" style={{ background: 'rgba(0,0,0,0.1)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <h4 style={{ margin: '0 0 0.8rem 0', color: 'gold' }}>🏆 Scoreboard Standings</h4>
+                                    <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                                        <thead>
+                                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', textAlign: 'left' }}>
+                                            <th style={{ padding: '0.3rem 0' }}>Buzzer</th>
+                                            <th>Team/Player</th>
+                                            <th style={{ textAlign: 'right' }}>Score</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {Object.entries(kbcLiveState.buzzer_state.buzzer_mappings)
+                                            .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
+                                            .map(([bId, details]) => (
+                                              <tr key={bId} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                <td style={{ padding: '0.35rem 0', fontWeight: 'bold', color: 'var(--admin-cyan)' }}>#{bId}</td>
+                                                <td style={{ color: 'rgba(255,255,255,0.85)' }}>{details.name}</td>
+                                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'gold' }}>{details.score || 0} pts</td>
+                                              </tr>
+                                            ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+
+                                </div>
+
+                              </div>
+                            )}
+
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -5193,6 +5859,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     <option value="hotseat_1">Hotseat (Batch 1)</option>
                     <option value="hotseat_2">Hotseat (Batch 2)</option>
                     <option value="hotseat_3">Hotseat (Batch 3)</option>
+                    <option value="buzzer">Buzzer Round Question</option>
                   </select>
                 </div>
                 <div>
@@ -5413,6 +6080,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
 
               const roundsList = [
                 { key: 'regular', title: '📝 PRELIM ROUND (MCQ)', color: 'rgb(var(--admin-cyan-rgb))', bg: 'rgba(var(--admin-cyan-rgb), 0.03)' },
+                { key: 'buzzer', title: '🚨 BUZZER ROUND', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.03)' },
                 { key: 'fff', title: '⚡ FASTEST FINGER FIRST (FFF)', color: '#ffd700', bg: 'rgba(255, 215, 0, 0.03)' },
                 { key: 'hotseat_1', title: '👑 HOTSEAT ROUND 1', color: '#db2777', bg: 'rgba(219, 39, 119, 0.03)' },
                 { key: 'hotseat_2', title: '👑 HOTSEAT ROUND 2', color: '#a855f7', bg: 'rgba(168, 85, 247, 0.03)' },
@@ -5575,6 +6243,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     <option value="hotseat_1">Hotseat (Batch 1)</option>
                     <option value="hotseat_2">Hotseat (Batch 2)</option>
                     <option value="hotseat_3">Hotseat (Batch 3)</option>
+                    <option value="buzzer">Buzzer Round Question</option>
                   </select>
                 </div>
                 <div>
@@ -5994,75 +6663,104 @@ function AdminDashboardPage() {
   useEffect(() => {
     const originalAlert = window.alert;
     window.alert = (message) => {
-      showBeautifulPopup("System Alert", message, 'info');
+      const msg = String(message).toLowerCase();
+      let type = 'info';
+      let title = 'System Notification';
+      
+      if (msg.includes('success') || msg.includes('completed') || msg.includes('updated') || msg.includes('promoted') || msg.includes('initialized') || msg.includes('saved')) {
+        type = 'success';
+        title = 'Success';
+      } else if (msg.includes('failed') || msg.includes('error') || msg.includes('not match') || msg.includes('required') || msg.includes('invalid') || msg.includes('cannot') || msg.includes('cant')) {
+        type = 'error';
+        title = 'Error';
+      } else if (msg.includes('warning') || msg.includes('are you sure') || msg.includes('limit') || msg.includes('maximum') || msg.includes('please')) {
+        type = 'warning';
+        title = 'Attention';
+      }
+      
+      showBeautifulPopup(title, String(message), type);
     };
     return () => {
       window.alert = originalAlert;
     };
   }, []);
 
+  const renderIcon = (type) => {
+    switch (type) {
+      case 'success':
+        return (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+        );
+      case 'error':
+        return (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        );
+      case 'warning':
+        return (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        );
+      case 'info':
+      default:
+        return (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+        );
+    }
+  };
+
   return (
     <>
       <AdminDashboardInner showBeautifulPopup={showBeautifulPopup} />
       {popupConfig && (
-        <div className="modal-overlay" style={{ zIndex: 99999, position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <div className={`modal-content glass-card glow-${popupConfig.type === 'error' ? 'red' : popupConfig.type === 'success' ? 'green' : popupConfig.type === 'warning' ? 'yellow' : 'blue'}`} style={{ maxWidth: '450px', width: '90%', padding: '2rem', textAlign: 'center', animation: 'scaleUp 0.3s ease', borderRadius: '12px' }}>
-            <h2 style={{
-              color: popupConfig.type === 'error' ? 'var(--admin-red)' : popupConfig.type === 'success' ? '#4caf50' : popupConfig.type === 'warning' ? '#ff9800' : 'var(--admin-cyan)',
-              marginTop: 0,
-              marginBottom: '1rem',
-              fontSize: '1.8rem',
-              letterSpacing: '0.05em',
-              fontWeight: '900'
-            }}>
-              {popupConfig.type === 'error' ? '🚨 ' : popupConfig.type === 'success' ? '🎉 ' : popupConfig.type === 'warning' ? '⚠️ ' : '💡 '}
+        <div className="custom-modal-overlay" onClick={() => {
+          if (!popupConfig.onCancel) {
+            setPopupConfig(null);
+          }
+        }}>
+          <div 
+            className={`custom-modal-card type-${popupConfig.type}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="custom-modal-icon-wrapper">
+              {renderIcon(popupConfig.type)}
+            </div>
+            <h2 className="custom-modal-title">
               {popupConfig.title}
             </h2>
-            <p style={{ fontSize: '1.05rem', lineHeight: '1.5', margin: '0 0 2rem 0', color: 'rgba(255, 255, 255, 0.95)', whiteSpace: 'pre-line' }}>
+            <div className="custom-modal-message">
               {popupConfig.message}
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+            </div>
+            <div className="custom-modal-actions">
               {popupConfig.onCancel && (
                 <button 
-                  className="prelim-reset-btn" 
+                  className="custom-modal-btn btn-cancel" 
                   onClick={() => {
                     popupConfig.onCancel();
                     setPopupConfig(null);
-                  }}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#fff',
-                    padding: '0.6rem 2rem',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
                   }}
                 >
                   {popupConfig.cancelText || 'Cancel'}
                 </button>
               )}
               <button 
-                className="btn-submit" 
+                className="custom-modal-btn btn-confirm" 
                 onClick={() => {
                   if (popupConfig.onConfirm) popupConfig.onConfirm();
                   setPopupConfig(null);
-                }}
-                style={{
-                  padding: '0.6rem 2.5rem',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  background: popupConfig.type === 'error' 
-                    ? 'linear-gradient(135deg, #f44336 0%, #c62828 100%)' 
-                    : popupConfig.type === 'success' 
-                      ? 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)' 
-                      : popupConfig.type === 'warning'
-                        ? 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)'
-                        : 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  fontWeight: '900',
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.3)'
                 }}
               >
                 {popupConfig.confirmText || 'OK'}
