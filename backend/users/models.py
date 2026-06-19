@@ -88,7 +88,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     college_id = models.CharField(max_length=40, unique=True)
     roll_number = models.CharField(max_length=40, unique=True, blank=True, null=True)
-    role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT, db_index=True)
     
     school = models.ForeignKey(School, on_delete=models.SET_NULL, null=True, blank=True, related_name="admins")
     is_super_admin = models.BooleanField(default=False)

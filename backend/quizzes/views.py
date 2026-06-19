@@ -1406,21 +1406,62 @@ class QuizAttemptSubmitAnswerView(APIView):
 
 class AdminStatsView(APIView):
     """
-    Returns platform-wide statistics for the admin dashboard.
+    Returns platform-wide or school-specific statistics for the admin dashboard.
     """
     permission_classes = [IsAdminUser]
     
     def get(self, request):
-        total_students = User.objects.filter(role='student').count()
-        total_quizzes = Quiz.objects.filter(is_archived=False).count()
-        active_quizzes = Quiz.objects.filter(is_archived=False, visible_to_students=True).count()
-        total_registrations = QuizRegistration.objects.count()
+        admin_user = request.user
         
+        # Base querysets
+        students = User.objects.filter(role='student')
+        quizzes = Quiz.objects.filter(is_archived=False)
+        registrations = QuizRegistration.objects.all()
+        
+        # Enforce school boundaries for school admins
+        if not admin_user.is_super_admin:
+            if admin_user.school:
+                students = students.filter(student_profile__school=admin_user.school)
+                quizzes = quizzes.filter(allowed_schools=admin_user.school)
+                registrations = registrations.filter(student__student_profile__school=admin_user.school)
+            else:
+                students = students.none()
+                quizzes = quizzes.none()
+                registrations = registrations.none()
+                
+        total_students = students.count()
+        total_quizzes = quizzes.count()
+        active_quizzes = quizzes.filter(visible_to_students=True).count()
+        total_registrations = registrations.count()
+        
+        # Year-wise breakdowns directly from database
+        from django.db.models import Count
+        from users.models import StudentProfile
+        
+        profile_qs = StudentProfile.objects.all()
+        if not admin_user.is_super_admin and admin_user.school:
+            profile_qs = profile_qs.filter(school=admin_user.school)
+            
+        year_counts = profile_qs.values('year').annotate(count=Count('id'))
+        year_breakdown = {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+        }
+        for yc in year_counts:
+            if yc['year'] in year_breakdown:
+                year_breakdown[yc['year']] = yc['count']
+                
         return Response({
             "total_students": total_students,
             "total_quizzes": total_quizzes,
             "active_quizzes": active_quizzes,
-            "total_registrations": total_registrations
+            "total_registrations": total_registrations,
+            "year1_count": year_breakdown["1"],
+            "year2_count": year_breakdown["2"],
+            "year3_count": year_breakdown["3"],
+            "year4_count": year_breakdown["4"],
         })
 
 

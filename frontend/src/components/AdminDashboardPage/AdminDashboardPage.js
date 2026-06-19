@@ -411,8 +411,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   };
 
   useEffect(() => {
-    if (activeTab === 'Student Accounts') {
+    if (activeTab === 'Student Accounts' || activeTab === 'Quiz Enrollment') {
       fetchAllStudents();
+    }
+    if (activeTab === 'Student Accounts') {
       getSchools().then(data => setAddStudentSchools(Array.isArray(data) ? data : [])).catch(() => setAddStudentSchools([]));
     }
   }, [activeTab]);
@@ -1391,14 +1393,12 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     try {
       setLoading(true);
       if (session?.token) {
-        const [qData, sData, studentsData] = await Promise.all([
+        const [qData, sData] = await Promise.all([
           getAdminQuizzes(session.token),
-          getAdminStats(session.token),
-          getAdminStudents(session.token).catch(() => [])
+          getAdminStats(session.token)
         ]);
         setQuizzes(qData);
         setAdminStats(sData);
-        setAllStudents(Array.isArray(studentsData) ? studentsData : []);
       }
     } catch (err) {
       console.error(err);
@@ -2199,11 +2199,11 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         </header>
 
         {activeTab === 'Overview' && (() => {
-          // Dynamically compute student year ratios for premium demographics bar charts
-          const year1Count = allStudents.filter(s => String(s.year) === '1').length;
-          const year2Count = allStudents.filter(s => String(s.year) === '2').length;
-          const year3Count = allStudents.filter(s => String(s.year) === '3').length;
-          const year4Count = allStudents.filter(s => String(s.year) === '4').length;
+          // Dynamically compute student year ratios for premium demographics bar charts from optimized stats API
+          const year1Count = adminStats.year1_count || 0;
+          const year2Count = adminStats.year2_count || 0;
+          const year3Count = adminStats.year3_count || 0;
+          const year4Count = adminStats.year4_count || 0;
           const maxCount = Math.max(year1Count, year2Count, year3Count, year4Count, 1);
           
           return (
@@ -2233,7 +2233,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>My School Students</h2>
                     </div>
                     <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>
-                      {allStudents.filter(s => String(s.school_id) === String(session?.user?.school_id)).length}
+                      {adminStats.total_students}
                     </div>
                     <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#42a5f5', marginTop: '0.5rem', fontFamily: 'monospace' }}>School pre-registrations</div>
                   </article>
@@ -2262,7 +2262,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       <h2 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--admin-muted)' }}>My School Quizzes</h2>
                     </div>
                     <div className="metric-value" style={{ fontSize: '2.5rem', fontWeight: '900', color: '#fff' }}>
-                      {quizzes.filter(q => !q.allowed_schools || q.allowed_schools.length === 0 || q.allowed_schools.some(schId => String(schId) === String(session?.user?.school_id))).length}
+                      {adminStats.total_quizzes}
                     </div>
                     <div className="metric-footer" style={{ fontSize: '0.8rem', color: '#ffd54f', marginTop: '0.5rem', fontFamily: 'monospace' }}>Accessible arenas</div>
                   </article>
