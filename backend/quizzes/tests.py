@@ -919,6 +919,47 @@ class QuizSecurityLoopholesTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_global_quiz_visibility_and_management_for_school_admins(self):
+        # Create a global quiz (allowed_schools is empty)
+        global_quiz = Quiz.objects.create(
+            title="Global Quiz",
+            created_by=self.admin_a,
+            host=self.admin_a,
+            visible_to_students=True
+        )
+        # Verify it has no allowed schools
+        self.assertEqual(global_quiz.allowed_schools.count(), 0)
+
+        # 1. School Admin B (different school) should see this global quiz in the admin list view
+        self.client.force_authenticate(user=self.admin_b)
+        url_list = "/api/quizzes/admin/"
+        response = self.client.get(url_list)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Check if global_quiz is in the response data
+        quiz_ids = [q['id'] for q in response.data]
+        self.assertIn(global_quiz.id, quiz_ids)
+
+        # 2. School Admin B cannot modify (patch/delete) this global quiz since they don't own it
+        url_detail = f"/api/quizzes/admin/{global_quiz.id}/"
+        payload = {"title": "Hacked Title"}
+        response = self.client.patch(url_detail, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.delete(url_detail)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. School Admin A (creator) can modify this global quiz and it should preserve its global status (allowed_schools stays empty)
+        self.client.force_authenticate(user=self.admin_a)
+        payload_update = {"title": "Updated Global Title"}
+        response = self.client.patch(url_detail, payload_update, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Refresh from database and assert allowed_schools is still empty
+        global_quiz.refresh_from_db()
+        self.assertEqual(global_quiz.allowed_schools.count(), 0)
+        self.assertEqual(global_quiz.title, "Updated Global Title")
+
+
 
 
 

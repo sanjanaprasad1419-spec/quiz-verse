@@ -58,20 +58,17 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 registered_count=Count('registrations')
             ).all()
         
-        user = self.request.user
         queryset = Quiz.objects.annotate(
             registered_count=Count('registrations')
         )
-        if getattr(user, 'is_super_admin', False):
-            return queryset.distinct()
 
         if getattr(user, 'school', None):
             queryset = queryset.filter(
-                Q(created_by=user) | Q(host=user) | Q(allowed_schools=user.school)
+                Q(created_by=user) | Q(host=user) | Q(allowed_schools=user.school) | Q(allowed_schools__isnull=True)
             )
         else:
             queryset = queryset.filter(
-                Q(created_by=user) | Q(host=user)
+                Q(created_by=user) | Q(host=user) | Q(allowed_schools__isnull=True)
             )
         return queryset.distinct()
         
@@ -86,7 +83,8 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
         user = self.request.user
         quiz = serializer.save()
         if not getattr(user, 'is_super_admin', False) and getattr(user, 'school', None):
-            quiz.allowed_schools.set([user.school])
+            if quiz.allowed_schools.exists():
+                quiz.allowed_schools.set([user.school])
 
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
