@@ -14,8 +14,8 @@ from django.db import transaction
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
-from quizzes.models import Quiz, QuizRegistration, Question, Choice, QuizAttempt, StudentAnswer, FFFAnswer, HotseatAttempt, SwitchCategory, SystemPreferences, BuzzerState, BuzzerPress
-from quizzes.serializers import QuizRegistrationSerializer, QuizSerializer, FFFAnswerSerializer, HotseatAttemptSerializer, QuestionSerializer, EnrolledStudentSerializer, SystemPreferencesSerializer, BuzzerStateSerializer, BuzzerPressSerializer
+from quizzes.models import Quiz, QuizRegistration, Question, Choice, QuizAttempt, StudentAnswer, FFFAnswer, HotseatAttempt, SwitchCategory, SystemPreferences, BuzzerState, BuzzerPress, Expert
+from quizzes.serializers import QuizRegistrationSerializer, QuizSerializer, FFFAnswerSerializer, HotseatAttemptSerializer, QuestionSerializer, EnrolledStudentSerializer, SystemPreferencesSerializer, BuzzerStateSerializer, BuzzerPressSerializer, ExpertSerializer
 from quizzes.services import process_mock_payment, register_student_for_quiz
 from django.utils import timezone
 import random
@@ -33,6 +33,16 @@ class IsStudentUser(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and request.user.role == 'student')
 
 
+def check_admin_quiz_write_access(user, quiz):
+    if getattr(user, 'is_super_admin', False):
+        return True
+    if quiz.created_by == user or quiz.host == user:
+        return True
+    if getattr(user, 'school', None) and quiz.allowed_schools.filter(id=user.school.id).exists():
+        return True
+    return False
+
+
 class AdminQuizViewSet(viewsets.ModelViewSet):
     """
     CRUD for admin to manage quizzes.
@@ -48,9 +58,13 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 registered_count=Count('registrations')
             ).all()
         
+        user = self.request.user
         queryset = Quiz.objects.annotate(
             registered_count=Count('registrations')
         )
+        if getattr(user, 'is_super_admin', False):
+            return queryset.distinct()
+
         if getattr(user, 'school', None):
             queryset = queryset.filter(
                 Q(created_by=user) | Q(host=user) | Q(allowed_schools=user.school)
@@ -73,6 +87,14 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
         quiz = serializer.save()
         if not getattr(user, 'is_super_admin', False) and getattr(user, 'school', None):
             quiz.allowed_schools.set([user.school])
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        if request.method not in permissions.SAFE_METHODS:
+            if not getattr(request.user, 'is_super_admin', False):
+                if obj.created_by != request.user and obj.host != request.user:
+                    from rest_framework.exceptions import PermissionDenied
+                    raise PermissionDenied("You do not have permission to modify this quiz.")
 
     @action(detail=False, methods=['get'])
     def download_template(self, request):
@@ -297,6 +319,24 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                 if q_type not in Question.QuestionType.values:
                     q_type = 'regular'
                 
+                # Check if the round for this question type is enabled
+                if q_type == 'regular' and not quiz.has_prelim_round:
+                    error_log.append({"row": idx, "question": text[:40], "reason": "Preliminary MCQ round is disabled for this quiz."})
+                    error_count += 1
+                    continue
+                elif q_type.startswith('fff_') and not quiz.has_fff_round:
+                    error_log.append({"row": idx, "question": text[:40], "reason": "Fastest Finger First round is disabled for this quiz."})
+                    error_count += 1
+                    continue
+                elif q_type == 'buzzer' and not quiz.has_buzzer_round:
+                    error_log.append({"row": idx, "question": text[:40], "reason": "Buzzer round is disabled for this quiz."})
+                    error_count += 1
+                    continue
+                elif (q_type.startswith('hotseat_') or q_type == 'switch') and not quiz.has_hotseat_round:
+                    error_log.append({"row": idx, "question": text[:40], "reason": "Hotseat round is disabled for this quiz."})
+                    error_count += 1
+                    continue
+                
                 # Validation checks specific to FFF vs regular MCQ
                 if q_type.startswith('fff_'):
                     if num_options < 4 or num_options > 10:
@@ -502,6 +542,74 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             
         return Response({"detail": "Switch category deleted successfully."})
 
+    @action(detail=True, methods=['get'])
+    def get_experts(self, request, pk=None):
+        quiz = self.get_object()
+        experts = quiz.experts.all()
+        data = []
+        for e in experts:
+            photo_url = e.photo.url if e.photo else None
+            if photo_url and request:
+                photo_url = request.build_absolute_uri(photo_url)
+            data.append({
+                "id": e.id,
+                "name": e.name,
+                "designation": e.designation,
+                "photo": photo_url
+            })
+        return Response(data)
+
+    @action(detail=True, methods=['post'], parser_classes=[parsers.MultiPartParser, parsers.FormParser])
+    def save_expert(self, request, pk=None):
+        quiz = self.get_object()
+        expert_id = request.data.get('expert_id')
+        name = request.data.get('name', '').strip()
+        designation = request.data.get('designation', '').strip()
+        if not name:
+            return Response({"detail": "Expert name is required."}, status=400)
+            
+        if expert_id:
+            expert = get_object_or_404(Expert, quiz=quiz, id=expert_id)
+            expert.name = name
+            expert.designation = designation
+            if 'photo' in request.FILES:
+                expert.photo = request.FILES['photo']
+            expert.save()
+        else:
+            if quiz.experts.count() >= 5:
+                return Response({"detail": "Maximum of 5 experts allowed for a quiz."}, status=400)
+            photo_file = request.FILES.get('photo')
+            expert = Expert.objects.create(
+                quiz=quiz,
+                name=name,
+                designation=designation,
+                photo=photo_file
+            )
+        
+        photo_url = expert.photo.url if expert.photo else None
+        if photo_url and request:
+            photo_url = request.build_absolute_uri(photo_url)
+            
+        return Response({
+            "detail": "Expert saved successfully.",
+            "expert": {
+                "id": expert.id,
+                "name": expert.name,
+                "designation": expert.designation,
+                "photo": photo_url
+            }
+        })
+
+    @action(detail=True, methods=['post'])
+    def delete_expert(self, request, pk=None):
+        quiz = self.get_object()
+        expert_id = request.data.get('expert_id')
+        if not expert_id:
+            return Response({"detail": "Expert ID is required."}, status=400)
+        expert = get_object_or_404(Expert, quiz=quiz, id=expert_id)
+        expert.delete()
+        return Response({"detail": "Expert deleted successfully."})
+
     @action(detail=True, methods=['post'])
     def add_question(self, request, pk=None):
         quiz = self.get_object()
@@ -510,6 +618,16 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Question text is required."}, status=400)
             
         q_type = request.data.get('question_type', 'regular')
+        
+        # Validation checks based on enabled quiz rounds
+        if q_type == 'regular' and not quiz.has_prelim_round:
+            return Response({"detail": "Preliminary MCQ round is disabled for this quiz."}, status=400)
+        elif q_type.startswith('fff_') and not quiz.has_fff_round:
+            return Response({"detail": "Fastest Finger First round is disabled for this quiz."}, status=400)
+        elif q_type == 'buzzer' and not quiz.has_buzzer_round:
+            return Response({"detail": "Buzzer round is disabled for this quiz."}, status=400)
+        elif (q_type.startswith('hotseat_') or q_type == 'switch') and not quiz.has_hotseat_round:
+            return Response({"detail": "Hotseat round is disabled for this quiz."}, status=400)
         category = request.data.get('category', 'General')
         marks = int(request.data.get('marks', 1))
         trivia = request.data.get('trivia', '')
@@ -541,6 +659,17 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Question text is required."}, status=400)
             
         q_type = request.data.get('question_type', 'regular')
+        
+        # Validation checks based on enabled quiz rounds
+        quiz = question.quiz
+        if q_type == 'regular' and not quiz.has_prelim_round:
+            return Response({"detail": "Preliminary MCQ round is disabled for this quiz."}, status=400)
+        elif q_type.startswith('fff_') and not quiz.has_fff_round:
+            return Response({"detail": "Fastest Finger First round is disabled for this quiz."}, status=400)
+        elif q_type == 'buzzer' and not quiz.has_buzzer_round:
+            return Response({"detail": "Buzzer round is disabled for this quiz."}, status=400)
+        elif (q_type.startswith('hotseat_') or q_type == 'switch') and not quiz.has_hotseat_round:
+            return Response({"detail": "Hotseat round is disabled for this quiz."}, status=400)
         category = request.data.get('category', 'General')
         marks = int(request.data.get('marks', 1))
         trivia = request.data.get('trivia', '')
@@ -654,7 +783,8 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
             "lifelines": {
                 "5050_used": attempt.lifeline_5050_used,
                 "poll_used": attempt.lifeline_poll_used,
-                "switch_used": attempt.lifeline_switch_used
+                "switch_used": attempt.lifeline_switch_used,
+                "expert_used": attempt.lifeline_expert_used
             },
             "lifeline_request_status": attempt.lifeline_request_status,
             "pending_lifeline_type": attempt.pending_lifeline_type,
@@ -794,19 +924,27 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
         if not batch_1 or not batch_2 or not batch_3:
             attempts = QuizAttempt.objects.filter(quiz=quiz, completed_at__isnull=False).order_by('-score', 'completed_at')
             student_ids = [att.student_id for att in attempts]
-            
             total_participants = len(student_ids)
-            top_30_percent_count = int(round(total_participants * 0.30))
-            batch_size = top_30_percent_count // 3
-            if total_participants >= 3 and batch_size < 1:
-                batch_size = 1
-                
-            total_to_select = batch_size * 3
-            top_selected = student_ids[:total_to_select]
             
-            batch_1 = top_selected[0:batch_size]
-            batch_2 = top_selected[batch_size:batch_size*2]
-            batch_3 = top_selected[batch_size*2:total_to_select]
+            if total_participants == 1:
+                batch_1 = [student_ids[0]]
+                batch_2, batch_3 = [], []
+                top_selected = list(batch_1)
+            elif total_participants == 2:
+                batch_1 = [student_ids[0]]
+                batch_2 = [student_ids[1]]
+                batch_3 = []
+                top_selected = list(batch_1) + list(batch_2)
+            else:
+                top_30_percent_count = int(round(total_participants * 0.30))
+                batch_size = top_30_percent_count // 3
+                if batch_size < 1:
+                    batch_size = 1
+                total_to_select = batch_size * 3
+                top_selected = student_ids[:total_to_select]
+                batch_1 = top_selected[0:batch_size]
+                batch_2 = top_selected[batch_size:batch_size*2]
+                batch_3 = top_selected[batch_size*2:total_to_select]
             
             quiz.top_30_selected = top_selected
         else:
@@ -1485,7 +1623,7 @@ class PublishedQuizListView(APIView):
             quizzes = quizzes.filter(Q(allowed_schools__id=profile.school_id) | Q(allowed_schools__isnull=True))
             quizzes = quizzes.exclude(~Q(created_by__school_id=profile.school_id) & Q(created_by__is_super_admin=False) & Q(created_by__school__isnull=False))
             
-        return Response(QuizSerializer(quizzes, many=True).data)
+        return Response(QuizSerializer(quizzes, many=True, context={'request': request}).data)
 
 
 
@@ -1501,11 +1639,16 @@ class QuizDetailView(APIView):
             pk=pk
         )
         
-        # Prevent students from viewing hidden/archived quizzes
-        if request.user.role == 'student' and (not quiz.visible_to_students or quiz.is_archived):
-            return Response({"detail": "Quiz not found or not available."}, status=status.HTTP_404_NOT_FOUND)
+        # Prevent students from viewing hidden/archived quizzes or quizzes they are not eligible for
+        if request.user.role == 'student':
+            if not quiz.visible_to_students or quiz.is_archived:
+                return Response({"detail": "Quiz not found or not available."}, status=status.HTTP_404_NOT_FOUND)
             
-        return Response(QuizSerializer(quiz).data)
+            profile = getattr(request.user, 'student_profile', None)
+            if profile and quiz.allowed_schools.exists() and not quiz.allowed_schools.filter(id=profile.school_id).exists():
+                return Response({"detail": "Quiz not found or not available."}, status=status.HTTP_404_NOT_FOUND)
+            
+        return Response(QuizSerializer(quiz, context={'request': request}).data)
 
 
 class StudentRegistrationView(APIView):
@@ -1564,33 +1707,178 @@ from quizzes.serializers import TeamSerializer
 from django.db.models import Q
 
 class StudentTeamViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsStudentUser]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = TeamSerializer
     
     def get_queryset(self):
-        # Teams for quizzes the user is registered for
-        return Team.objects.filter(
-            Q(leader=self.request.user) | Q(members=self.request.user) | Q(quiz__registrations__student=self.request.user)
-        ).distinct()
+        user = self.request.user
+        if user.role == 'admin':
+            if user.is_super_admin:
+                return Team.objects.all()
+            if user.school:
+                return Team.objects.filter(quiz__allowed_schools=user.school).distinct()
+            return Team.objects.none()
+        else:
+            # Teams for quizzes the user is registered for
+            return Team.objects.filter(
+                Q(leader=user) | Q(members=user) | Q(quiz__registrations__student=user)
+            ).distinct()
         
+    def validate_team_members(self, quiz, leader, emails, current_team_id=None):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        from quizzes.models import QuizRegistration, Team
+        from rest_framework.exceptions import ValidationError
+        
+        # 1. Check for blank emails
+        for idx, email in enumerate(emails):
+            if not email or not str(email).strip():
+                raise ValidationError({"detail": f"Member {idx + 1} email is required."})
+        
+        # Check that leader's email matches the first email
+        if emails[0].lower().strip() != leader.email.lower().strip():
+            raise ValidationError({"detail": "The creator/leader of the team must be Member 1."})
+
+        unique_emails = set(e.lower().strip() for e in emails)
+        if len(unique_emails) < 4:
+            raise ValidationError({"detail": "All 4 members in the team must have unique emails."})
+
+        users = []
+        for idx, email in enumerate(emails):
+            email_clean = email.lower().strip()
+            # Check user existence
+            try:
+                user = User.objects.get(email__iexact=email_clean)
+            except User.DoesNotExist:
+                raise ValidationError({"detail": f"Member {idx + 1} email ({email}) is not registered in the system."})
+            
+            # Check registration for this quiz
+            if not QuizRegistration.objects.filter(quiz=quiz, student=user).exists():
+                raise ValidationError({"detail": f"Member {idx + 1} ({user.full_name}) is not registered for this quiz."})
+                
+            # Check if already in another team for this quiz (leader or member)
+            other_teams = Team.objects.filter(quiz=quiz).filter(Q(leader=user) | Q(members=user))
+            if current_team_id:
+                other_teams = other_teams.exclude(pk=current_team_id)
+            if other_teams.exists():
+                raise ValidationError({"detail": f"Member {idx + 1} ({user.full_name}) is already registered in another team."})
+                
+            users.append(user)
+            
+        return users
+
     def perform_create(self, serializer):
+        if self.request.user.role != 'student':
+            raise ValidationError({"detail": "Only student users can register teams."})
+            
         quiz_id = self.request.data.get('quiz')
         quiz = get_object_or_404(Quiz, pk=quiz_id)
         if not QuizRegistration.objects.filter(quiz=quiz, student=self.request.user).exists():
             raise ValidationError({"detail": "You must be registered for this quiz to create a team."})
-        serializer.save(leader=self.request.user, quiz=quiz)
+            
+        emails = [
+            self.request.data.get('member1_email'),
+            self.request.data.get('member2_email'),
+            self.request.data.get('member3_email'),
+            self.request.data.get('member4_email')
+        ]
+        
+        users = self.validate_team_members(quiz, self.request.user, emails)
+        instance = serializer.save(
+            leader=self.request.user, 
+            quiz=quiz,
+            member1_name=users[0].full_name,
+            member1_email=users[0].email,
+            member2_name=users[1].full_name,
+            member2_email=users[1].email,
+            member3_name=users[2].full_name,
+            member3_email=users[2].email,
+            member4_name=users[3].full_name,
+            member4_email=users[3].email,
+        )
+        instance.members.set([users[1], users[2], users[3]])
+            
+    def perform_update(self, serializer):
+        from rest_framework.exceptions import PermissionDenied
+        if self.request.user.role != 'student':
+            raise PermissionDenied("Only student users can edit teams.")
+            
+        team = self.get_object()
+        if team.leader != self.request.user:
+            raise PermissionDenied("Only the team leader can edit the team.")
+            
+        emails = [
+            self.request.data.get('member1_email') or team.member1_email,
+            self.request.data.get('member2_email') or team.member2_email,
+            self.request.data.get('member3_email') or team.member3_email,
+            self.request.data.get('member4_email') or team.member4_email
+        ]
+        
+        users = self.validate_team_members(team.quiz, team.leader, emails, current_team_id=team.id)
+        instance = serializer.save(
+            member1_name=users[0].full_name,
+            member1_email=users[0].email,
+            member2_name=users[1].full_name,
+            member2_email=users[1].email,
+            member3_name=users[2].full_name,
+            member3_email=users[2].email,
+            member4_name=users[3].full_name,
+            member4_email=users[3].email,
+        )
+        instance.members.set([users[1], users[2], users[3]])
+            
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+        if self.request.user.role != 'student':
+            raise PermissionDenied("Only student users can delete teams.")
+            
+        if instance.leader != self.request.user:
+            raise PermissionDenied("Only the team leader can delete the team.")
+        instance.delete()
         
     @action(detail=True, methods=['post'])
     def join(self, request, pk=None):
+        if request.user.role != 'student':
+            return Response({"detail": "Only student users can join teams."}, status=400)
+            
         team = self.get_object()
         if not QuizRegistration.objects.filter(quiz=team.quiz, student=request.user).exists():
             return Response({"detail": "You must be registered for this quiz to join this team."}, status=400)
+            
+        from quizzes.models import Team as TeamModel
+        other_teams = TeamModel.objects.filter(quiz=team.quiz).filter(Q(leader=request.user) | Q(members=request.user))
+        if other_teams.exists():
+            return Response({"detail": "You are already in a team for this quiz."}, status=400)
             
         if team.members.count() + 1 >= 4:
             return Response({"detail": "This team has reached its maximum size of 4 members."}, status=400)
             
         team.members.add(request.user)
         return Response({"detail": "Successfully joined team!"})
+
+
+class StudentRegisteredPlayersView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        
+        # Check if requesting user is registered
+        if not QuizRegistration.objects.filter(quiz=quiz, student=request.user).exists():
+            return Response({"detail": "You must be registered for this quiz to view other participants."}, status=403)
+            
+        # Get all registered students
+        registrations = QuizRegistration.objects.filter(quiz=quiz).select_related('student')
+        
+        data = []
+        for r in registrations:
+            data.append({
+                "id": r.student.id,
+                "full_name": r.student.full_name,
+                "email": r.student.email,
+            })
+        return Response(data)
+
 
 
 
@@ -1634,17 +1922,30 @@ class QuizLiveStateView(APIView):
             if attempts:
                 student_ids = [att.student_id for att in attempts]
                 total_participants = len(student_ids)
-                top_30_percent_count = int(round(total_participants * 0.30))
-                batch_size = top_30_percent_count // 3
-                if total_participants >= 3 and batch_size < 1:
-                    batch_size = 1
                 
-                total_to_select = batch_size * 3
-                top_selected = student_ids[:total_to_select]
+                if total_participants == 1:
+                    batch_1 = [student_ids[0]]
+                    batch_2, batch_3 = [], []
+                    top_selected = list(batch_1)
+                elif total_participants == 2:
+                    batch_1 = [student_ids[0]]
+                    batch_2 = [student_ids[1]]
+                    batch_3 = []
+                    top_selected = list(batch_1) + list(batch_2)
+                else:
+                    top_30_percent_count = int(round(total_participants * 0.30))
+                    batch_size = top_30_percent_count // 3
+                    if batch_size < 1:
+                        batch_size = 1
+                    total_to_select = batch_size * 3
+                    top_selected = student_ids[:total_to_select]
+                    batch_1 = top_selected[0:batch_size]
+                    batch_2 = top_selected[batch_size:batch_size*2]
+                    batch_3 = top_selected[batch_size*2:total_to_select]
                 
-                quiz.batch_1_players = top_selected[0:batch_size]
-                quiz.batch_2_players = top_selected[batch_size:batch_size*2]
-                quiz.batch_3_players = top_selected[batch_size*2:total_to_select]
+                quiz.batch_1_players = batch_1
+                quiz.batch_2_players = batch_2
+                quiz.batch_3_players = batch_3
                 quiz.top_30_selected = top_selected
                 quiz.save(update_fields=['top_30_selected', 'batch_1_players', 'batch_2_players', 'batch_3_players'])
 
@@ -1904,6 +2205,7 @@ class QuizLiveStateView(APIView):
             "hotseat_q1_q5_limit": prefs.hotseat_q1_q5_limit,
             "hotseat_q6_q10_limit": prefs.hotseat_q6_q10_limit,
             "auto_approve_registrations": prefs.auto_approve_registrations,
+            "expert_timer_limit": getattr(prefs, 'expert_timer_limit', 30),
         })
 
 
@@ -2240,7 +2542,7 @@ class HotseatLifelineView(APIView):
             return Response({"detail": "Lifelines are no longer available on the 15th question."}, status=400)
             
         lifeline = request.data.get('lifeline') or request.data.get('lifeline_type')
-        if not lifeline or lifeline not in ['5050', 'poll', 'switch']:
+        if not lifeline or lifeline not in ['5050', 'poll', 'switch', 'expert']:
             return Response({"detail": "Invalid lifeline provided."}, status=400)
             
         questions = list(Question.objects.filter(quiz=quiz, question_type=q_type).order_by('order', 'id'))
@@ -2349,6 +2651,23 @@ class HotseatLifelineView(APIView):
                     "choices": [{"id": c.id, "text": c.text} for c in choices]
                 }
             })
+            
+        elif lifeline == 'expert':
+            if attempt.lifeline_expert_used:
+                return Response({"detail": "Ask the Expert lifeline already used."}, status=400)
+                
+            attempt.lifeline_expert_used = True
+            attempt.lifeline_request_status = 'approved'
+            attempt.pending_lifeline_type = 'expert'
+            attempt.approved_lifeline_data = {
+                "step": "select_expert"
+            }
+            attempt.save()
+            
+            return Response({
+                "lifeline": "expert",
+                "attempt": HotseatAttemptSerializer(attempt).data
+            })
 
 
 class HotseatWalkAwayView(APIView):
@@ -2424,7 +2743,7 @@ class HotseatLifelineRequestView(APIView):
         lifeline = request.data.get('lifeline') or request.data.get('lifeline_type')
         category = request.data.get('category', '')
         
-        if not lifeline or lifeline not in ['5050', 'poll', 'switch']:
+        if not lifeline or lifeline not in ['5050', 'poll', 'switch', 'expert']:
             return Response({"detail": "Invalid lifeline provided."}, status=400)
             
         if lifeline == '5050' and attempt.lifeline_5050_used:
@@ -2433,6 +2752,8 @@ class HotseatLifelineRequestView(APIView):
             return Response({"detail": "Audience Poll lifeline already used."}, status=400)
         elif lifeline == 'switch' and attempt.lifeline_switch_used:
             return Response({"detail": "Switch Question lifeline already used."}, status=400)
+        elif lifeline == 'expert' and attempt.lifeline_expert_used:
+            return Response({"detail": "Ask the Expert lifeline already used."}, status=400)
             
         attempt.pending_lifeline_type = lifeline
         attempt.pending_lifeline_switch_category = category
@@ -2447,7 +2768,7 @@ class HotseatLifelineRequestView(APIView):
 
 
 class HotseatLifelineAcknowledgeView(APIView):
-    permission_classes = [IsStudentUser]
+    permission_classes = [permissions.IsAuthenticated]
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
@@ -2465,14 +2786,16 @@ class HotseatLifelineAcknowledgeView(APIView):
         else:
             return Response({"detail": "Hotseat is not active at this stage."}, status=400)
             
-        if request.user != hotseat_player:
-            return Response({"detail": "You are not the active hotseat contestant."}, status=403)
+        if request.user != hotseat_player and request.user.role != 'admin':
+            return Response({"detail": "You are not the active hotseat contestant or admin."}, status=403)
             
-        attempt = get_object_or_404(HotseatAttempt, quiz=quiz, student=request.user, batch_number=batch_num)
+        attempt = get_object_or_404(HotseatAttempt, quiz=quiz, student=hotseat_player, batch_number=batch_num)
         
         attempt.lifeline_request_status = 'none'
         attempt.pending_lifeline_type = ''
         attempt.pending_lifeline_switch_category = ''
+        attempt.approved_lifeline_data = {}
+        attempt.timer_is_paused = False
         attempt.save()
         
         return Response({
@@ -2486,6 +2809,8 @@ class AdminApproveLifelineView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2553,6 +2878,14 @@ class AdminApproveLifelineView(APIView):
                 return Response({"detail": "Switch Question lifeline already used."}, status=400)
             approved_data = {}
             
+        elif lifeline == 'expert':
+            if attempt.lifeline_expert_used:
+                return Response({"detail": "Ask the Expert lifeline already used."}, status=400)
+            attempt.lifeline_expert_used = True
+            approved_data = {
+                "step": "select_expert"
+            }
+            
         elif lifeline == 'walkaway':
             attempt.status = HotseatAttempt.Status.WALKED_AWAY
             attempt.completed_at = timezone.now()
@@ -2585,6 +2918,8 @@ class AdminRejectLifelineView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2621,6 +2956,8 @@ class AdminShowOptionsView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2654,6 +2991,8 @@ class AdminPauseTimerView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2686,6 +3025,8 @@ class AdminResumeTimerView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2718,6 +3059,8 @@ class AdminNextQuestionReadyView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2752,6 +3095,8 @@ class AdminTriggerIntroView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2784,6 +3129,8 @@ class AdminCompleteIntroView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -2886,6 +3233,8 @@ class AdminConfirmSwitchLifelineView(APIView):
     
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         stage = quiz.current_stage
         
         if stage == Quiz.Stage.HOTSEAT_BATCH_1:
@@ -3087,6 +3436,8 @@ class BuzzerInitView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state, created = BuzzerState.objects.get_or_create(quiz=quiz)
         if not state.buzzer_mappings:
             state.buzzer_mappings = {str(i): {"name": f"Podium {i}", "score": 0} for i in range(1, 16)}
@@ -3104,6 +3455,8 @@ class BuzzerNextQuestionView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         questions = list(Question.objects.filter(quiz=quiz, question_type=Question.QuestionType.BUZZER).order_by('order', 'id'))
         if not questions:
@@ -3143,6 +3496,8 @@ class BuzzerReleaseView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         if not state.current_question:
             return Response({"detail": "No active question selected."}, status=400)
@@ -3163,6 +3518,8 @@ class BuzzerAnswerCorrectView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         active_buzzer = state.active_buzzer_id
         if not active_buzzer:
@@ -3176,6 +3533,7 @@ class BuzzerAnswerCorrectView(APIView):
             
         state.buzzers_locked = True
         state.is_timer_running = False
+        state.options_visible = True
         state.answer_visible = True
         state.active_buzzer_id = None  # Clear so the answering panel hides
         state.save()
@@ -3188,6 +3546,8 @@ class BuzzerAnswerIncorrectView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         active_buzzer = state.active_buzzer_id
         if not active_buzzer:
@@ -3202,9 +3562,16 @@ class BuzzerAnswerIncorrectView(APIView):
         state.is_timer_running = False
         state.timer_started_at = None
         state.timer_paused_at = None
-        state.buzzers_locked = False
-        state.save()
         
+        # Check if all active teams have answered incorrectly
+        if len(state.incorrect_buzzers) >= (state.buzzer_count or 15):
+            state.options_visible = True
+            state.answer_visible = True
+            state.buzzers_locked = True
+        else:
+            state.buzzers_locked = False
+            
+        state.save()
         return Response(BuzzerStateSerializer(state).data)
 
 
@@ -3213,6 +3580,8 @@ class BuzzerResetView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         state.buzzers_locked = True
         state.is_timer_running = False
@@ -3233,6 +3602,8 @@ class BuzzerUpdateMappingsView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         mappings = request.data.get('mappings')
         timer_limit = request.data.get('timer_limit')
@@ -3254,6 +3625,8 @@ class BuzzerRevealOptionsView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         state.options_visible = not state.options_visible
         state.save(update_fields=['options_visible'])
@@ -3265,6 +3638,8 @@ class BuzzerRevealAnswerView(APIView):
 
     def post(self, request, pk):
         quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
         state = get_object_or_404(BuzzerState, quiz=quiz)
         state.answer_visible = not state.answer_visible
         state.save(update_fields=['answer_visible'])
@@ -3316,8 +3691,298 @@ class PressBuzzerView(APIView):
         })
 
 
+class StudentExpertListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        experts = quiz.experts.all()
+        data = []
+        for e in experts:
+            photo_url = e.photo.url if e.photo else None
+            if photo_url and request:
+                photo_url = request.build_absolute_uri(photo_url)
+            data.append({
+                "id": e.id,
+                "name": e.name,
+                "designation": e.designation,
+                "photo": photo_url
+            })
+        return Response(data)
 
 
+class HotseatSelectExpertView(APIView):
+    permission_classes = [IsStudentUser]
+    
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        stage = quiz.current_stage
+        
+        if stage == Quiz.Stage.HOTSEAT_BATCH_1:
+            hotseat_player = quiz.hotseat_player_1
+            batch_num = 1
+        elif stage == Quiz.Stage.HOTSEAT_BATCH_2:
+            hotseat_player = quiz.hotseat_player_2
+            batch_num = 2
+        elif stage == Quiz.Stage.HOTSEAT_BATCH_3:
+            hotseat_player = quiz.hotseat_player_3
+            batch_num = 3
+        else:
+            return Response({"detail": "Hotseat is not active at this stage."}, status=400)
+            
+        if request.user != hotseat_player:
+            return Response({"detail": "You are not the active hotseat contestant."}, status=403)
+            
+        attempt = get_object_or_404(HotseatAttempt, quiz=quiz, student=request.user, batch_number=batch_num)
+        if attempt.status != HotseatAttempt.Status.PLAYING:
+            return Response({"detail": "Hotseat attempt already completed."}, status=400)
+            
+        if attempt.lifeline_request_status != 'approved' or attempt.pending_lifeline_type != 'expert':
+            return Response({"detail": "Ask the Expert lifeline is not approved."}, status=400)
+            
+        expert_id = request.data.get('expert_id')
+        if not expert_id:
+            return Response({"detail": "expert_id is required."}, status=400)
+            
+        expert = get_object_or_404(Expert, quiz=quiz, id=expert_id)
+        
+        photo_url = expert.photo.url if expert.photo else None
+        if photo_url and request:
+            photo_url = request.build_absolute_uri(photo_url)
+            
+        prefs = SystemPreferences.get_solo()
+        attempt.approved_lifeline_data = {
+            "step": "timer",
+            "selected_expert": {
+                "id": expert.id,
+                "name": expert.name,
+                "designation": expert.designation,
+                "photo": photo_url
+            },
+            "timer_started_at": timezone.now().isoformat(),
+            "timer_duration": getattr(prefs, 'expert_timer_limit', 30)
+        }
+        # Pause the main countdown timer
+        attempt.timer_is_paused = True
+        attempt.save()
+        
+        return Response({
+            "detail": "Expert selected and timer started.",
+            "attempt": HotseatAttemptSerializer(attempt).data
+        })
+
+
+
+class AdminTeamManagementView(APIView):
+    """
+    Admin-only endpoint to list, create, update, and delete teams for a quiz.
+    Allows creating teams from 1–4 registered students (no leader restriction).
+    """
+    permission_classes = [IsAdminUser]
+
+    def _get_quiz(self, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(self.request.user, quiz):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have permission to manage this quiz.")
+        return quiz
+
+    def _resolve_member(self, identifier, quiz, idx, current_team_id=None):
+        """Resolve a user by email or id, validate quiz registration."""
+        User = get_user_model()
+        try:
+            if isinstance(identifier, int) or str(identifier).isdigit():
+                user = User.objects.get(pk=int(identifier))
+            else:
+                user = User.objects.get(email__iexact=str(identifier).strip())
+        except User.DoesNotExist:
+            raise ValidationError({"detail": f"Member {idx} not found in the system."})
+
+        if not QuizRegistration.objects.filter(quiz=quiz, student=user).exists():
+            raise ValidationError({"detail": f"Member {idx} ({user.full_name}) is not registered for this quiz."})
+
+        # Check if already in another team
+        from quizzes.models import Team as TeamModel
+        other_teams = TeamModel.objects.filter(quiz=quiz).filter(Q(leader=user) | Q(members=user))
+        if current_team_id:
+            other_teams = other_teams.exclude(pk=current_team_id)
+        if other_teams.exists():
+            raise ValidationError({"detail": f"Member {idx} ({user.full_name}) is already in another team for this quiz."})
+
+        return user
+
+    def get(self, request, pk):
+        quiz = self._get_quiz(pk)
+        from quizzes.models import Team as TeamModel
+        from quizzes.serializers import TeamSerializer
+        teams = TeamModel.objects.filter(quiz=quiz).prefetch_related('members').select_related('leader')
+
+        # Attach which podium each team is assigned to
+        buzzer_state = getattr(quiz, 'buzzer_state', None)
+        mappings = buzzer_state.buzzer_mappings if buzzer_state else {}
+        team_to_podium = {}
+        for podium_id, mapping_data in mappings.items():
+            tid = str(mapping_data.get('team_id', ''))
+            if tid:
+                team_to_podium[tid] = int(podium_id)
+
+        data = []
+        for t in teams:
+            serialized = TeamSerializer(t).data
+            serialized['podium'] = team_to_podium.get(str(t.id))
+            data.append(serialized)
+
+        return Response(data)
+
+    def post(self, request, pk):
+        quiz = self._get_quiz(pk)
+        from quizzes.models import Team as TeamModel
+
+        name = request.data.get('name', '').strip()
+        if not name:
+            return Response({"detail": "Team name is required."}, status=400)
+
+        if TeamModel.objects.filter(quiz=quiz, name__iexact=name).exists():
+            return Response({"detail": f"A team named '{name}' already exists in this quiz."}, status=400)
+
+        # Collect member identifiers (email or id). At least 1 required, max 4.
+        member_fields = ['member1', 'member2', 'member3', 'member4']
+        raw_members = [request.data.get(f) for f in member_fields]
+        raw_members = [m for m in raw_members if m]  # drop blanks
+
+        if not raw_members:
+            return Response({"detail": "At least 1 member is required."}, status=400)
+        if len(raw_members) > 4:
+            return Response({"detail": "A team can have at most 4 members."}, status=400)
+
+        # Check uniqueness across members
+        seen = set()
+        resolved_users = []
+        for idx, identifier in enumerate(raw_members, 1):
+            user = self._resolve_member(identifier, quiz, idx)
+            uid = user.pk
+            if uid in seen:
+                return Response({"detail": f"Duplicate member detected: {user.full_name}."}, status=400)
+            seen.add(uid)
+            resolved_users.append(user)
+
+        # Create team — leader is the first member
+        leader = resolved_users[0]
+        name_fields = {}
+        email_fields = {}
+        for i, u in enumerate(resolved_users, 1):
+            name_fields[f'member{i}_name'] = u.full_name
+            email_fields[f'member{i}_email'] = u.email
+
+        with transaction.atomic():
+            from quizzes.models import Team as TeamModel
+            team = TeamModel.objects.create(
+                quiz=quiz,
+                name=name,
+                leader=leader,
+                **name_fields,
+                **email_fields,
+            )
+            # Members M2M excludes leader
+            non_leaders = resolved_users[1:]
+            team.members.set(non_leaders)
+
+        from quizzes.serializers import TeamSerializer
+        return Response(TeamSerializer(team).data, status=201)
+
+    def patch(self, request, pk, team_id):
+        quiz = self._get_quiz(pk)
+        from quizzes.models import Team as TeamModel
+        team = get_object_or_404(TeamModel, pk=team_id, quiz=quiz)
+
+        name = request.data.get('name', '').strip() or team.name
+        if name != team.name and TeamModel.objects.filter(quiz=quiz, name__iexact=name).exclude(pk=team.pk).exists():
+            return Response({"detail": f"A team named '{name}' already exists in this quiz."}, status=400)
+
+        member_fields = ['member1', 'member2', 'member3', 'member4']
+        raw_members = [request.data.get(f) for f in member_fields]
+        raw_members = [m for m in raw_members if m]
+
+        if not raw_members:
+            # No members provided — just update name
+            team.name = name
+            team.save(update_fields=['name'])
+            from quizzes.serializers import TeamSerializer
+            return Response(TeamSerializer(team).data)
+
+        if len(raw_members) > 4:
+            return Response({"detail": "A team can have at most 4 members."}, status=400)
+
+        seen = set()
+        resolved_users = []
+        for idx, identifier in enumerate(raw_members, 1):
+            user = self._resolve_member(identifier, quiz, idx, current_team_id=team.pk)
+            uid = user.pk
+            if uid in seen:
+                return Response({"detail": f"Duplicate member detected: {user.full_name}."}, status=400)
+            seen.add(uid)
+            resolved_users.append(user)
+
+        leader = resolved_users[0]
+        name_fields = {f'member{i}_name': '' for i in range(1, 5)}
+        email_fields = {f'member{i}_email': '' for i in range(1, 5)}
+        for i, u in enumerate(resolved_users, 1):
+            name_fields[f'member{i}_name'] = u.full_name
+            email_fields[f'member{i}_email'] = u.email
+
+        with transaction.atomic():
+            team.name = name
+            team.leader = leader
+            for field, val in {**name_fields, **email_fields}.items():
+                setattr(team, field, val)
+            team.save()
+            team.members.set(resolved_users[1:])
+
+        from quizzes.serializers import TeamSerializer
+        return Response(TeamSerializer(team).data)
+
+    def delete(self, request, pk, team_id):
+        quiz = self._get_quiz(pk)
+        from quizzes.models import Team as TeamModel
+        team = get_object_or_404(TeamModel, pk=team_id, quiz=quiz)
+        team.delete()
+        return Response({"detail": "Team deleted successfully."})
+
+
+class UnteamedPlayersView(APIView):
+    """
+    Admin-only endpoint. Returns all students registered for the quiz
+    who are NOT yet part of any team for that quiz.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk)
+        if not check_admin_quiz_write_access(request.user, quiz):
+            return Response({"detail": "You do not have permission to manage this quiz."}, status=status.HTTP_403_FORBIDDEN)
+        from quizzes.models import Team as TeamModel
+
+        # All users in any team for this quiz
+        teamed_ids = set()
+        for team in TeamModel.objects.filter(quiz=quiz).prefetch_related('members').select_related('leader'):
+            teamed_ids.add(team.leader_id)
+            for m in team.members.all():
+                teamed_ids.add(m.pk)
+
+        registrations = QuizRegistration.objects.filter(quiz=quiz).select_related('student').exclude(
+            student_id__in=teamed_ids
+        )
+
+        data = []
+        for r in registrations:
+            s = r.student
+            data.append({
+                "id": s.pk,
+                "full_name": s.full_name,
+                "email": s.email,
+            })
+
+        return Response(data)
 
 
 

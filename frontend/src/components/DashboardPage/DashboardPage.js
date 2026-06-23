@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getAuthSession, changePassword, clearAuthSession } from '../../api/auth';
-import { getPublishedQuizzes, getMyRegistrations, registerForQuiz, processMockPayment } from '../../api/quizzes';
+import { getPublishedQuizzes, getMyRegistrations, registerForQuiz, processMockPayment, getTeams, createTeam } from '../../api/quizzes';
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
 import './DashboardPage.css';
 
@@ -9,6 +9,39 @@ const LockIcon = ({ size = 20, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
+
+const LogoIcon = ({ size = 28, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 32 32" fill="none" {...props}>
+    <defs>
+      <linearGradient id="logoGradDash" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#6366f1" />
+        <stop offset="50%" stopColor="#8b5cf6" />
+        <stop offset="100%" stopColor="#06b6d4" />
+      </linearGradient>
+      <filter id="logoGlowDash" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <path 
+      d="M16 4L28 26H4L16 4Z" 
+      stroke="url(#logoGradDash)" 
+      strokeWidth="2.5" 
+      strokeLinejoin="round" 
+      fill="rgba(99, 102, 241, 0.15)"
+      filter="url(#logoGlowDash)"
+    />
+    <path 
+      d="M16 11L23 23H9L16 11Z" 
+      fill="url(#logoGradDash)"
+      opacity="0.85"
+    />
+    <circle cx="16" cy="17" r="2" fill="#ffffff" />
   </svg>
 );
 
@@ -42,6 +75,11 @@ function DashboardPage() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [teams, setTeams] = useState([]);
+  const [teamError, setTeamError] = useState('');
+  const [teamSuccess, setTeamSuccess] = useState('');
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamForm, setTeamForm] = useState({ name: '', member2: '', member3: '', member4: '' });
 
   const isLight = theme === 'light';
   
@@ -65,13 +103,15 @@ function DashboardPage() {
       const token = session?.token;
       if (!token) return;
 
-      const [quizzesData, registrationsData] = await Promise.all([
+      const [quizzesData, registrationsData, teamsData] = await Promise.all([
         getPublishedQuizzes(token),
-        getMyRegistrations(token)
+        getMyRegistrations(token),
+        getTeams(token)
       ]);
 
       setPublishedQuizzes(quizzesData);
       setMyRegistrations(registrationsData);
+      setTeams(teamsData);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     } finally {
@@ -87,6 +127,38 @@ function DashboardPage() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setTeamError('');
+    setTeamSuccess('');
+    setTeamForm({ name: '', member2: '', member3: '', member4: '' });
+  }, [selectedQuiz]);
+
+  const handleRegisterTeam = async (e) => {
+    e.preventDefault();
+    setTeamError('');
+    setTeamSuccess('');
+    setTeamLoading(true);
+
+    try {
+      const payload = {
+        quiz: selectedQuiz.id,
+        name: teamForm.name,
+        member1_email: studentData.email,
+        member2_email: teamForm.member2,
+        member3_email: teamForm.member3,
+        member4_email: teamForm.member4
+      };
+      await createTeam(payload, session?.token);
+      setTeamSuccess('Team registered successfully!');
+      setTeamForm({ name: '', member2: '', member3: '', member4: '' });
+      await fetchDashboardData(true);
+    } catch (err) {
+      setTeamError(err.data?.detail || err.message || 'Failed to register team.');
+    } finally {
+      setTeamLoading(false);
+    }
+  };
 
   const handleRegister = async (quizId) => {
     try {
@@ -399,7 +471,7 @@ function DashboardPage() {
         <header className="dashboard-topbar">
           <div className="topbar-brand-welcome">
             <Link className="dashboard-brand" to="/">
-              <span>{SYMBOLS.triangle}</span>
+              <span className="dashboard-brand-logo"><LogoIcon /></span>
               QuizVerse
             </Link>
             <div className="welcome-info">
@@ -426,6 +498,7 @@ function DashboardPage() {
       <aside className={`quiz-detail-drawer ${selectedQuiz ? 'open' : ''}`} aria-hidden={!selectedQuiz}>
         {selectedQuiz && (() => {
           const registration = myRegistrations.find(r => r.quiz === selectedQuiz.id);
+          const myTeam = teams.find(t => t.quiz === selectedQuiz.id && (t.leader === studentData.id || t.members.includes(studentData.id)));
           
           return (
           <>
@@ -437,7 +510,7 @@ function DashboardPage() {
             <div className="drawer-detail-grid">
               <div>
                 <span>Status</span>
-                <strong>{selectedQuiz.status.replace('_', ' ').toUpperCase()}</strong>
+                <strong>{(selectedQuiz.computed_status || selectedQuiz.status || 'draft').replace(/_/g, ' ').toUpperCase()}</strong>
               </div>
               <div>
                 <span>Date</span>
@@ -457,37 +530,126 @@ function DashboardPage() {
 
             <div className="drawer-section" style={{marginTop: '2rem'}}>
               {registration ? (
-                <div style={{padding: '1rem', border: '1px solid rgba(var(--dash-mint-rgb), 0.3)', borderRadius: '8px', background: 'rgba(var(--dash-mint-rgb), 0.05)'}}>
-                  <h3 style={{marginTop: 0, color: 'rgb(var(--dash-mint-rgb))'}}>Registration Status</h3>
-                  <p style={{margin: '0.5rem 0'}}><strong>Payment Status:</strong> <span className={registration.payment_status === 'paid' ? 'text-success' : 'text-warning'}>{registration.payment_status.toUpperCase()}</span></p>
-                  <p style={{margin: '0.5rem 0'}}><strong>Player ID:</strong> <span className="neon-value-green">{registration.player_id || 'Awaiting Payment'}</span></p>
-                  <p style={{margin: '0.5rem 0'}}><strong>Event Password:</strong> <span className="neon-value-gold">{registration.arena_password || ''}</span></p>
-                  
-                  {registration.payment_status === 'pending' && parseFloat(selectedQuiz.registration_fee) > 0 && (
-                    <button 
-                      className="btn-submit" 
-                      style={{marginTop: '1.25rem', width: '100%'}} 
-                      onClick={() => handleMockPayment(selectedQuiz.id)}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? 'PROCESSING...' : 'COMPLETE MOCK PAYMENT'}
-                    </button>
-                  )}
-                  
-                   {registration.payment_status === 'paid' && (
-                    <Link
-                      to={`/quiz/${selectedQuiz.id}/play`}
-                      className="btn-submit"
-                      style={{marginTop: '1.25rem', width: '100%', display: 'block', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg, #ffd700, #d4af37)', color: '#000', fontWeight: 'bold'}}
-                      onClick={() => {
-                        localStorage.setItem(`quiz-${selectedQuiz.id}-player-id`, registration.player_id);
-                        localStorage.removeItem(`quiz-${selectedQuiz.id}-event-password`);
-                        sessionStorage.removeItem(`quiz-${selectedQuiz.id}-verified`);
-                      }}
-                    >
-                      ENTER ARENA
-                    </Link>
-                  )}
+                <div>
+                  <div style={{padding: '1rem', border: '1px solid rgba(var(--dash-mint-rgb), 0.3)', borderRadius: '8px', background: 'rgba(var(--dash-mint-rgb), 0.05)'}}>
+                    <h3 style={{marginTop: 0, color: 'rgb(var(--dash-mint-rgb))'}}>Registration Status</h3>
+                    <p style={{margin: '0.5rem 0'}}><strong>Payment Status:</strong> <span className={registration.payment_status === 'paid' ? 'text-success' : 'text-warning'}>{registration.payment_status.toUpperCase()}</span></p>
+                    <p style={{margin: '0.5rem 0'}}><strong>Player ID:</strong> <span className="neon-value-green">{registration.player_id || 'Awaiting Payment'}</span></p>
+                    <p style={{margin: '0.5rem 0'}}><strong>Event Password:</strong> <span className="neon-value-gold">{registration.arena_password || ''}</span></p>
+                    
+                    {registration.payment_status === 'pending' && parseFloat(selectedQuiz.registration_fee) > 0 && (
+                      <button 
+                        className="btn-submit" 
+                        style={{marginTop: '1.25rem', width: '100%'}} 
+                        onClick={() => handleMockPayment(selectedQuiz.id)}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading ? 'PROCESSING...' : 'COMPLETE MOCK PAYMENT'}
+                      </button>
+                    )}
+                    
+                     {registration.payment_status === 'paid' && (
+                      <Link
+                        to={`/quiz/${selectedQuiz.id}/play`}
+                        className="btn-submit"
+                        style={{marginTop: '1.25rem', width: '100%', display: 'block', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg, #ffd700, #d4af37)', color: '#000', fontWeight: 'bold'}}
+                        onClick={() => {
+                          localStorage.setItem(`quiz-${selectedQuiz.id}-player-id`, registration.player_id);
+                          localStorage.removeItem(`quiz-${selectedQuiz.id}-event-password`);
+                          sessionStorage.removeItem(`quiz-${selectedQuiz.id}-verified`);
+                        }}
+                      >
+                        ENTER ARENA
+                      </Link>
+                    )}
+                  </div>
+
+                  {/* Team Registration / Status section */}
+                  <div style={{marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)'}}>
+                    {myTeam ? (
+                      <div style={{padding: '1rem', border: '1px solid rgba(var(--dash-pink-rgb), 0.3)', borderRadius: '8px', background: 'rgba(var(--dash-pink-rgb), 0.05)'}}>
+                        <h3 style={{marginTop: 0, color: 'rgb(var(--dash-pink-rgb))', fontSize: '1.1rem', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Buzzer Team: {myTeam.name}</h3>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.8rem'}}>
+                          <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)'}}>
+                            <span style={{fontWeight: 'bold', color: 'gold'}}>Member 1 (Leader):</span><br/>{myTeam.member1_name} ({myTeam.member1_email})
+                          </div>
+                          <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)'}}>
+                            <span style={{fontWeight: 'bold', color: '#fff'}}>Member 2:</span><br/>{myTeam.member2_name} ({myTeam.member2_email})
+                          </div>
+                          <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)'}}>
+                            <span style={{fontWeight: 'bold', color: '#fff'}}>Member 3:</span><br/>{myTeam.member3_name} ({myTeam.member3_email})
+                          </div>
+                          <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)'}}>
+                            <span style={{fontWeight: 'bold', color: '#fff'}}>Member 4:</span><br/>{myTeam.member4_name} ({myTeam.member4_email})
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{padding: '1rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)'}}>
+                        <h3 style={{marginTop: 0, color: 'rgb(var(--dash-pink-rgb))', fontSize: '1.1rem', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Register Buzzer Round Team</h3>
+                        <p style={{fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', margin: '0.25rem 0 1rem', lineHeight: '1.4'}}>
+                          All 4 members must be registered in the quiz first.
+                        </p>
+                        
+                        {teamError && <div style={{ color: '#ff6b6b', background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.2)', borderRadius: '8px', padding: '0.6rem', marginBottom: '0.8rem', fontSize: '0.8rem' }}>{teamError}</div>}
+                        {teamSuccess && <div style={{ color: '#51cf66', background: 'rgba(81,207,102,0.1)', border: '1px solid rgba(81,207,102,0.2)', borderRadius: '8px', padding: '0.6rem', marginBottom: '0.8rem', fontSize: '0.8rem' }}>{teamSuccess}</div>}
+
+                        <form onSubmit={handleRegisterTeam} style={{display: 'flex', flexDirection: 'column', gap: '0.8rem'}}>
+                          <div>
+                            <label style={{display: 'block', fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginBottom: '0.2rem'}}>TEAM NAME</label>
+                            <input 
+                              type="text" required placeholder="Enter team name"
+                              value={teamForm.name}
+                              onChange={(e) => setTeamForm({...teamForm, name: e.target.value})}
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display: 'block', fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginBottom: '0.2rem'}}>MEMBER 1 EMAIL (LEADER)</label>
+                            <input 
+                              type="email" disabled
+                              value={studentData.email}
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display: 'block', fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginBottom: '0.2rem'}}>MEMBER 2 EMAIL</label>
+                            <input 
+                              type="email" required placeholder="member2@university.edu"
+                              value={teamForm.member2}
+                              onChange={(e) => setTeamForm({...teamForm, member2: e.target.value})}
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display: 'block', fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginBottom: '0.2rem'}}>MEMBER 3 EMAIL</label>
+                            <input 
+                              type="email" required placeholder="member3@university.edu"
+                              value={teamForm.member3}
+                              onChange={(e) => setTeamForm({...teamForm, member3: e.target.value})}
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display: 'block', fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginBottom: '0.2rem'}}>MEMBER 4 EMAIL</label>
+                            <input 
+                              type="email" required placeholder="member4@university.edu"
+                              value={teamForm.member4}
+                              onChange={(e) => setTeamForm({...teamForm, member4: e.target.value})}
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <button 
+                            type="submit" 
+                            disabled={teamLoading}
+                            style={{ width: '100%', padding: '0.65rem', marginTop: '0.5rem', background: 'linear-gradient(135deg, rgb(var(--dash-pink-rgb)), #c026d3)', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', fontWeight: '700', cursor: teamLoading ? 'wait' : 'pointer', letterSpacing: '0.05em' }}
+                          >
+                            {teamLoading ? 'REGISTERING...' : 'REGISTER TEAM'}
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <button 

@@ -119,7 +119,13 @@ class AdminStudentCreateSerializer(serializers.Serializer):
     branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.select_related("program").all())
     year = serializers.ChoiceField(choices=StudentProfile.Year.choices)
 
-    DEFAULT_PASSWORD = "itmu@123"
+    @staticmethod
+    def _generate_password():
+        """Generate a random 10-character password for new students."""
+        import secrets
+        import string
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(10))
 
     def validate(self, attrs):
         attrs["full_name"] = attrs["full_name"].strip()
@@ -159,8 +165,9 @@ class AdminStudentCreateSerializer(serializers.Serializer):
 
         try:
             with transaction.atomic():
+                password = self._generate_password()
                 user = User.objects.create_user(
-                    password=self.DEFAULT_PASSWORD,
+                    password=password,
                     role=User.Role.STUDENT,
                     **validated_data,
                 )

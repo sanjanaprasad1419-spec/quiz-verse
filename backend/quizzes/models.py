@@ -1,6 +1,7 @@
 from datetime import timedelta
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from users.models import Branch, Program, School
 
@@ -16,7 +17,7 @@ class Quiz(models.Model):
         CANCELLED = "cancelled", "Cancelled"
 
     title = models.CharField(max_length=200)
-    description = models.TextField()
+    description = models.TextField(blank=True, default='')
     event_date = models.DateTimeField(blank=True, null=True)
     registration_open_date = models.DateTimeField(blank=True, null=True)
     registration_close_date = models.DateTimeField(blank=True, null=True)
@@ -25,7 +26,6 @@ class Quiz(models.Model):
         max_length=30, choices=Status.choices, default=Status.DRAFT
     )
     visible_to_students = models.BooleanField(default=False)
-    is_registration_open = models.BooleanField(default=False)
     is_archived = models.BooleanField(default=False)
 
     # KBC Event State Fields
@@ -74,6 +74,12 @@ class Quiz(models.Model):
     registration_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     intro_title = models.CharField(max_length=200, default="Kaun Banega Crorepati", blank=True)
 
+    # Round toggles for independent/custom play
+    has_prelim_round = models.BooleanField(default=True)
+    has_buzzer_round = models.BooleanField(default=True)
+    has_fff_round = models.BooleanField(default=True)
+    has_hotseat_round = models.BooleanField(default=True)
+
     # Eligibility constraints
     allowed_schools = models.ManyToManyField(School, blank=True)
     allowed_programs = models.ManyToManyField(Program, blank=True)
@@ -98,12 +104,37 @@ class Quiz(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_status_display()})"
-        
+
+    @property
+    def is_registration_open(self):
+        """Computed from registration_open_date and registration_close_date."""
+        now = timezone.now()
+        if not self.registration_open_date:
+            return False  # No open date set — registration stays closed
+        if now < self.registration_open_date:
+            return False  # Hasn't opened yet
+        if self.registration_close_date and now > self.registration_close_date:
+            return False  # Already closed
+        return True
+
+    @property
+    def computed_status(self):
+        """Auto-derives status from dates. live/completed/cancelled are manual overrides."""
+        if self.status in ('live', 'completed', 'cancelled'):
+            return self.status
+        now = timezone.now()
+        if not self.registration_open_date:
+            return 'draft'
+        if now < self.registration_open_date:
+            return 'upcoming'
+        if self.is_registration_open:
+            return 'registration_open'
+        return 'registration_closed'
+
     def save(self, *args, **kwargs):
-        if self.event_date:
-            auto_close = self.event_date - timedelta(hours=12)
-            if not self.registration_close_date or self.registration_close_date > auto_close:
-                self.registration_close_date = auto_close
+        if self.event_date and self.registration_close_date:
+            if self.registration_close_date > self.event_date:
+                self.registration_close_date = self.event_date
         super().save(*args, **kwargs)
 
 
@@ -232,6 +263,17 @@ class Team(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="teams")
     leader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="led_teams")
     members = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name="joined_teams", blank=True)
+    
+    member1_name = models.CharField(max_length=100, blank=True, default="")
+    member2_name = models.CharField(max_length=100, blank=True, default="")
+    member3_name = models.CharField(max_length=100, blank=True, default="")
+    member4_name = models.CharField(max_length=100, blank=True, default="")
+
+    member1_email = models.EmailField(blank=True, default="")
+    member2_email = models.EmailField(blank=True, default="")
+    member3_email = models.EmailField(blank=True, default="")
+    member4_email = models.EmailField(blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -281,6 +323,7 @@ class HotseatAttempt(models.Model):
     lifeline_5050_used = models.BooleanField(default=False)
     lifeline_poll_used = models.BooleanField(default=False)
     lifeline_switch_used = models.BooleanField(default=False)
+    lifeline_expert_used = models.BooleanField(default=False)
     
     # Pre-selected choice (visible to admin host before locking)
     preselected_choice = models.ForeignKey('Choice', null=True, blank=True, on_delete=models.SET_NULL, related_name='hotseat_preselections')
@@ -333,6 +376,8 @@ class SystemPreferences(models.Model):
     hotseat_q1_q5_limit = models.IntegerField(default=60)
     hotseat_q6_q10_limit = models.IntegerField(default=120)
     auto_approve_registrations = models.BooleanField(default=False)
+    expert_timer_limit = models.IntegerField(default=30)
+
 
     class Meta:
         verbose_name = "System Preferences"
@@ -393,6 +438,18 @@ class BuzzerPress(models.Model):
 
     def __str__(self):
         return f"Buzzer {self.buzzer_id} - Q{self.question.order} ({self.time_taken_seconds}s)"
+
+
+class Expert(models.Model):
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="experts")
+    name = models.CharField(max_length=255)
+    designation = models.CharField(max_length=255, blank=True, default="")
+    photo = models.ImageField(upload_to="experts/", blank=True, null=True)
+
+
+    def __str__(self):
+        return f"{self.name} ({self.quiz.title})"
+
 
 
 

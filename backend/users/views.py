@@ -224,14 +224,20 @@ class AdminStudentDetailView(APIView):
     permission_classes = []
 
     def put(self, request, pk):
-        user = get_user_from_request_token(request)
-        if user is None or user.role != User.Role.ADMIN:
+        admin_user = get_user_from_request_token(request)
+        if admin_user is None or admin_user.role != User.Role.ADMIN:
             return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             student = User.objects.get(pk=pk, role=User.Role.STUDENT)
         except User.DoesNotExist:
             return Response({"detail": "Student not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # SECURITY: Prevent cross-school IDOR — school admins can only edit students in their school
+        if not admin_user.is_super_admin:
+            student_school = getattr(getattr(student, 'student_profile', None), 'school', None)
+            if student_school != admin_user.school:
+                return Response({"detail": "Access denied. Student does not belong to your school."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = AdminStudentUpdateSerializer(student, data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -240,14 +246,20 @@ class AdminStudentDetailView(APIView):
         return Response({"detail": "Student updated successfully."}, status=status.HTTP_200_OK)
 
     def delete(self, request, pk):
-        user = get_user_from_request_token(request)
-        if user is None or user.role != User.Role.ADMIN:
+        admin_user = get_user_from_request_token(request)
+        if admin_user is None or admin_user.role != User.Role.ADMIN:
             return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             student = User.objects.get(pk=pk, role=User.Role.STUDENT)
         except User.DoesNotExist:
             return Response({"detail": "Student not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # SECURITY: Prevent cross-school IDOR — school admins can only delete students in their school
+        if not admin_user.is_super_admin:
+            student_school = getattr(getattr(student, 'student_profile', None), 'school', None)
+            if student_school != admin_user.school:
+                return Response({"detail": "Access denied. Student does not belong to your school."}, status=status.HTTP_403_FORBIDDEN)
 
         student.delete()
         return Response({"detail": "Student deleted successfully."}, status=status.HTTP_200_OK)
@@ -265,6 +277,11 @@ class AdminStudentBulkUploadView(APIView):
         upload_file = request.FILES.get("file")
         if not upload_file:
             return Response({"detail": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # SECURITY: Limit upload file size to 5 MB to prevent memory exhaustion
+        MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+        if upload_file.size > MAX_UPLOAD_SIZE:
+            return Response({"detail": "File too large. Maximum allowed size is 5 MB."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             wb = openpyxl.load_workbook(upload_file, read_only=True)
@@ -348,9 +365,12 @@ class AdminStudentBulkUploadView(APIView):
 
             try:
                 with db_transaction.atomic():
+                    import secrets, string
+                    _alphabet = string.ascii_letters + string.digits
+                    _random_password = ''.join(secrets.choice(_alphabet) for _ in range(10))
                     new_user = User.objects.create_user(
                         email=email,
-                        password="itmu@123",
+                        password=_random_password,
                         full_name=full_name,
                         roll_number=roll_number,
                         college_id=college_id,
@@ -532,7 +552,7 @@ class SuperAdminManageAdminsView(APIView):
                 "school_code": a.school.school_code if a.school else "SUPER" if a.is_super_admin else "",
                 "is_super_admin": a.is_super_admin,
                 "is_active": a.is_active,
-                "cleartext_password": a.cleartext_password or "",
+                # SECURITY: cleartext_password is intentionally omitted from the API response.
             })
         return Response(data)
 
@@ -572,7 +592,6 @@ class SuperAdminManageAdminsView(APIView):
             role=User.Role.ADMIN,
             school=school_obj,
             is_super_admin=is_super,
-            cleartext_password=password,
             is_staff=True,
             is_superuser=is_super
         )
@@ -630,7 +649,6 @@ class SuperAdminManageAdminsDetailView(APIView):
 
         if password:
             admin.set_password(password)
-            admin.cleartext_password = password
 
         admin.is_super_admin = is_super
         admin.is_superuser = is_super

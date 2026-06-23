@@ -35,7 +35,12 @@ import {
   buzzerUpdateMappings,
   buzzerRevealOptions,
   buzzerRevealAnswer,
-  getTeams
+  getTeams,
+  getAdminTeams,
+  createAdminTeam,
+  updateAdminTeam,
+  deleteAdminTeam,
+  getUnteamedPlayers,
 } from '../../api/quizzes';
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
 import './AdminDashboardPage.css';
@@ -117,6 +122,52 @@ const SchoolPortalIcon = ({ size = 20, ...props }) => (
     <path d="M18 8h.01M18 12h.01M6 8h.01M6 12h.01M10 8h.01M14 8h.01" />
   </svg>
 );
+
+const LogoIcon = ({ size = 28, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 32 32" fill="none" {...props}>
+    <defs>
+      <linearGradient id="logoGradAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#6366f1" />
+        <stop offset="50%" stopColor="#8b5cf6" />
+        <stop offset="100%" stopColor="#06b6d4" />
+      </linearGradient>
+      <filter id="logoGlowAdmin" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <path 
+      d="M16 4L28 26H4L16 4Z" 
+      stroke="url(#logoGradAdmin)" 
+      strokeWidth="2.5" 
+      strokeLinejoin="round" 
+      fill="rgba(99, 102, 241, 0.15)"
+      filter="url(#logoGlowAdmin)"
+    />
+    <path 
+      d="M16 11L23 23H9L16 11Z" 
+      fill="url(#logoGradAdmin)"
+      opacity="0.85"
+    />
+    <circle cx="16" cy="17" r="2" fill="#ffffff" />
+  </svg>
+);
+
+const ChevronLeftIcon = ({ size = 20, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ size = 20, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
 
 const PrelimsIcon = ({ size = 20, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -242,6 +293,15 @@ const SYMBOLS = {
   quizzes: '\u229E', // Placeholder quiz symbol
 };
 
+const getDefaultQuestionType = (quiz) => {
+  if (!quiz) return 'regular';
+  if (quiz.has_prelim_round !== false) return 'regular';
+  if (quiz.has_fff_round !== false) return 'fff_1';
+  if (quiz.has_hotseat_round !== false) return 'hotseat_1';
+  if (quiz.has_buzzer_round !== false) return 'buzzer';
+  return 'regular';
+};
+
 function AdminDashboardInner({ showBeautifulPopup }) {
   const session = getAuthSession();
   const [theme, setTheme] = useState(() => localStorage.getItem('quizverse-theme') || 'dark');
@@ -266,19 +326,32 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const [activeTab, setActiveTab] = useState('Overview');
   const [showModal, setShowModal] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
+  const [showExpertsModal, setShowExpertsModal] = useState(false);
+  const [expertsModalQuizId, setExpertsModalQuizId] = useState(null);
+  const [expertsModalQuizTitle, setExpertsModalQuizTitle] = useState('');
+  const [expertsList, setExpertsList] = useState([]);
+  const [loadingExperts, setLoadingExperts] = useState(false);
+  const [expertForm, setExpertForm] = useState({ id: null, name: '', designation: '', photo: null });
+  const [expertFormError, setExpertFormError] = useState('');
+  const [submittingExpert, setSubmittingExpert] = useState(false);
   const [formData, setFormData] = useState({
     title: '', description: '', rules_instructions: '', 
     event_date: '', event_time: '',
     registration_open_date: '', registration_open_time: '', 
     registration_close_date: '', registration_close_time: '', 
     max_participants: '100',
-    registration_fee: '0', visible_to_students: false, is_registration_open: false,
+    registration_fee: '0', visible_to_students: false,
     intro_title: 'Kaun Banega Crorepati',
     require_eligibility: false,
     eligibility_school: '',
     eligibility_programs: [],
     eligibility_branches: [],
-    host: ''
+    host: '',
+    has_prelim_round: true,
+    has_buzzer_round: true,
+    has_fff_round: true,
+    has_hotseat_round: true,
+    is_global: false
   });
   const [submitLoading, setSubmitLoading] = useState(false);
   const [schools, setSchools] = useState([]);
@@ -632,7 +705,9 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const [kbcQuizDetail, setKbcQuizDetail] = useState(null);
   const [kbcLiveState, setKbcLiveState] = useState(null);
   const [prelimScoresList, setPrelimScoresList] = useState([]);
+  const [kbcEnrolledStudents, setKbcEnrolledStudents] = useState([]);
   const [fffResultsData, setFffResultsData] = useState(null);
+  const [revealedCount, setRevealedCount] = useState(0);
   const [kbcLoading, setKbcLoading] = useState(false);
   const [batch1Input, setBatch1Input] = useState('');
   const [batch2Input, setBatch2Input] = useState('');
@@ -644,18 +719,48 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const [buzzerCount, setBuzzerCount] = useState(15);
   const [isBuzzerMappingEdit, setIsBuzzerMappingEdit] = useState(false);
   const isBuzzerMappingEditRef = useRef(false);
+  const [editingBuzzerNameId, setEditingBuzzerNameId] = useState(null);
+  const [tempBuzzerName, setTempBuzzerName] = useState('');
+
+  // Admin Team Management state
+  const [adminTeams, setAdminTeams] = useState([]);
+  const [unteamedPlayers, setUnteamedPlayers] = useState([]);
+  const [showTeamPanel, setShowTeamPanel] = useState(false);
+  const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
+  const [editingTeam, setEditingTeam] = useState(null); // team obj being edited
+  const [teamFormName, setTeamFormName] = useState('');
+  const [teamFormMembers, setTeamFormMembers] = useState(['', '', '', '']); // up to 4 member IDs/emails
+  const [teamFormLoading, setTeamFormLoading] = useState(false);
+  const [teamFormError, setTeamFormError] = useState('');
 
   const prevActiveBuzzerIdRef = useRef(null);
   const prevIncorrectBuzzersCountRef = useRef(null);
+  const currentAudioRef = useRef(null);
 
   const playAudio = (src) => {
     try {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+        currentAudioRef.current = null;
+      }
       const audio = new Audio(src);
+      currentAudioRef.current = audio;
       audio.play().catch(e => console.warn("Audio play blocked or failed:", e));
     } catch (e) {
       console.warn("Audio playback not supported:", e);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+        currentAudioRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const activeBuzzerId = kbcLiveState?.buzzer_state?.active_buzzer_id;
@@ -711,6 +816,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const [hotseatQ1Q5Duration, setHotseatQ1Q5Duration] = useState(() => parseInt(localStorage.getItem('quizverse_cfg_hotseat_q1_q5_duration') || '60'));
   const [hotseatQ6Q10Duration, setHotseatQ6Q10Duration] = useState(() => parseInt(localStorage.getItem('quizverse_cfg_hotseat_q6_q10_duration') || '120'));
   const [autoApproveEnrollment, setAutoApproveEnrollment] = useState(() => localStorage.getItem('quizverse_cfg_auto_approve_enrollment') === 'true');
+  const [expertDuration, setExpertDuration] = useState(() => parseInt(localStorage.getItem('quizverse_cfg_expert_duration') || '30'));
 
   const fetchEnrolledStudents = async (quizId) => {
     if (!quizId) {
@@ -750,6 +856,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
           setHotseatQ1Q5Duration(data.hotseat_q1_q5_limit);
           setHotseatQ6Q10Duration(data.hotseat_q6_q10_limit);
           setAutoApproveEnrollment(data.auto_approve_registrations);
+          setExpertDuration(data.expert_timer_limit || 30);
         })
         .catch((err) => {
           console.error("Failed to fetch system preferences:", err);
@@ -861,6 +968,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         hotseat_q1_q5_limit: hotseatQ1Q5Duration,
         hotseat_q6_q10_limit: hotseatQ6Q10Duration,
         auto_approve_registrations: autoApproveEnrollment,
+        expert_timer_limit: expertDuration,
       };
       await saveSystemPreferences(payload, session?.token);
       
@@ -870,6 +978,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       localStorage.setItem('quizverse_cfg_hotseat_q1_q5_duration', hotseatQ1Q5Duration.toString());
       localStorage.setItem('quizverse_cfg_hotseat_q6_q10_duration', hotseatQ6Q10Duration.toString());
       localStorage.setItem('quizverse_cfg_auto_approve_enrollment', autoApproveEnrollment.toString());
+      localStorage.setItem('quizverse_cfg_expert_duration', expertDuration.toString());
       
       alert("Live Event Preferences saved successfully.");
     } catch (err) {
@@ -962,6 +1071,60 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     return 1;
   };
 
+  const getEnabledStages = (quizDetail) => {
+    if (!quizDetail) return KBC_STAGES;
+    const stages = [];
+    if (quizDetail.has_prelim_round !== false) {
+      stages.push(KBC_STAGES.find(s => s.value === 'regular'));
+    }
+    if (quizDetail.has_prelim_round !== false || quizDetail.has_fff_round !== false) {
+      stages.push(KBC_STAGES.find(s => s.value === 'batch_selection'));
+    }
+    if (quizDetail.has_buzzer_round !== false) {
+      stages.push(KBC_STAGES.find(s => s.value === 'buzzer_round'));
+    }
+    if (quizDetail.has_fff_round !== false) {
+      stages.push(KBC_STAGES.find(s => s.value === 'fff_batch_1'));
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_1'));
+      stages.push(KBC_STAGES.find(s => s.value === 'fff_batch_2'));
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_2'));
+      stages.push(KBC_STAGES.find(s => s.value === 'fff_batch_3'));
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_3'));
+    } else if (quizDetail.has_hotseat_round !== false) {
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_1'));
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_2'));
+      stages.push(KBC_STAGES.find(s => s.value === 'hotseat_batch_3'));
+    }
+    stages.push(KBC_STAGES.find(s => s.value === 'completed'));
+    return stages.filter(Boolean);
+  };
+
+  const getEnabledPhases = (quizDetail) => {
+    if (!quizDetail) return KBC_PHASES;
+    const phases = [];
+    if (quizDetail.has_prelim_round !== false) {
+      phases.push(KBC_PHASES.find(p => p.num === 1));
+    }
+    if (quizDetail.has_prelim_round !== false || quizDetail.has_fff_round !== false) {
+      phases.push(KBC_PHASES.find(p => p.num === 2));
+    }
+    if (quizDetail.has_buzzer_round !== false) {
+      phases.push(KBC_PHASES.find(p => p.num === 3));
+    }
+    if (quizDetail.has_fff_round !== false) {
+      phases.push(KBC_PHASES.find(p => p.num === 4));
+    }
+    if (quizDetail.has_hotseat_round !== false) {
+      phases.push(KBC_PHASES.find(p => p.num === 5));
+    }
+    phases.push(KBC_PHASES.find(p => p.num === 6));
+    
+    return phases.filter(Boolean).map((p, idx) => ({
+      ...p,
+      displayNum: idx + 1
+    }));
+  };
+
   const KBC_LADDER = [
     { q: 15, val: '1,00,00,000 pts', jackpot: true },
     { q: 14, val: '50,00,000 pts' },
@@ -984,8 +1147,28 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     if (!quizId) return;
     try {
       const token = session?.token;
-      const detail = await getQuizDetails(quizId, token);
-      setKbcQuizDetail(detail);
+      let activeDetail = detail;
+      
+      // Auto-correct stage if current stage is disabled
+      const enabledStages = getEnabledStages(detail);
+      if (enabledStages.length > 0 && !enabledStages.some(s => s.value === detail.current_stage)) {
+        console.log(`Auto-correcting stage from ${detail.current_stage} to ${enabledStages[0].value}`);
+        try {
+          await updateQuizStage(quizId, enabledStages[0].value, token);
+          activeDetail = await getQuizDetails(quizId, token);
+        } catch (err) {
+          console.error("Error auto-correcting stage:", err);
+        }
+      }
+      setKbcQuizDetail(activeDetail);
+
+      // Fetch KBC enrolled students
+      try {
+        const enrolled = await getEnrolledStudents(quizId, token);
+        setKbcEnrolledStudents(enrolled || []);
+      } catch (e) {
+        console.error("Error fetching KBC enrolled students:", e);
+      }
 
       // Fetch live-state (for hotseat attempt info)
       try {
@@ -1015,7 +1198,12 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       if (stage.startsWith('fff_') || stage.startsWith('hotseat_')) {
         try {
           const fffData = await getFFFResults(quizId, token);
-          setFffResultsData(fffData);
+          setFffResultsData(prev => {
+            if (!prev || prev.question?.id !== fffData?.question?.id) {
+              setRevealedCount(0);
+            }
+            return fffData;
+          });
         } catch (e) {
           console.error("Error fetching FFF results:", e);
           setFffResultsData(null);
@@ -1026,9 +1214,14 @@ function AdminDashboardInner({ showBeautifulPopup }) {
 
       if (detail.current_stage === 'buzzer_round') {
         try {
-          const allTeams = await getTeams(token);
-          const filteredTeams = allTeams.filter(t => t.quiz === quizId);
-          setBuzzerTeams(filteredTeams);
+          const [allTeams, soloPlayers] = await Promise.all([
+            getAdminTeams(quizId, token),
+            getUnteamedPlayers(quizId, token),
+          ]);
+          setAdminTeams(allTeams);
+          setUnteamedPlayers(soloPlayers);
+          // Keep legacy buzzerTeams for the dropdown
+          setBuzzerTeams(allTeams);
         } catch (e) {
           console.error("Error fetching teams for buzzer round:", e);
         }
@@ -1193,7 +1386,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   const handleBuzzerCorrect = async () => {
     try {
       setKbcLoading(true);
-      playAudio('/correct answer.mp3');
+      playAudio('/dragon-studio-correct.mp3');
       await buzzerAnswerCorrect(selectedKbcQuizId, session?.token);
       await fetchKbcControllerData(selectedKbcQuizId);
     } catch (err) {
@@ -1251,6 +1444,32 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     }
   };
 
+  const handleSaveBuzzerNameInline = async (bId, newName) => {
+    try {
+      setKbcLoading(true);
+      const currentMappings = kbcLiveState?.buzzer_state?.buzzer_mappings || {};
+      const updatedMappings = {
+        ...currentMappings,
+        [bId]: {
+          ...currentMappings[bId],
+          name: newName
+        }
+      };
+      
+      const limit = kbcLiveState?.buzzer_state?.answer_timer_limit || 15;
+      const count = kbcLiveState?.buzzer_state?.buzzer_count || 15;
+      
+      await buzzerUpdateMappings(selectedKbcQuizId, updatedMappings, limit, count, session?.token);
+      setEditingMappings(updatedMappings);
+      setEditingBuzzerNameId(null);
+      await fetchKbcControllerData(selectedKbcQuizId);
+    } catch (err) {
+      alert(err.message || 'Failed to update podium name');
+    } finally {
+      setKbcLoading(false);
+    }
+  };
+
   const handleBuzzerRevealOptions = async () => {
     try {
       setKbcLoading(true);
@@ -1275,6 +1494,79 @@ function AdminDashboardInner({ showBeautifulPopup }) {
     }
   };
 
+  // --- Admin Team Management Handlers ---
+  const refreshAdminTeamData = async () => {
+    try {
+      const [teams, solo] = await Promise.all([
+        getAdminTeams(selectedKbcQuizId, session?.token),
+        getUnteamedPlayers(selectedKbcQuizId, session?.token),
+      ]);
+      setAdminTeams(teams);
+      setUnteamedPlayers(solo);
+      setBuzzerTeams(teams);
+    } catch (e) {
+      console.error('Failed to refresh team data:', e);
+    }
+  };
+
+  const openCreateTeamModal = () => {
+    setEditingTeam(null);
+    setTeamFormName('');
+    setTeamFormMembers(['', '', '', '']);
+    setTeamFormError('');
+    setShowCreateTeamModal(true);
+  };
+
+  const openEditTeamModal = (team) => {
+    setEditingTeam(team);
+    setTeamFormName(team.name);
+    // Prefill member slots with user IDs from member_name fields
+    const allMembers = [
+      team.leader,
+      ...(team.members || []),
+    ].filter(Boolean);
+    const slots = ['', '', '', ''];
+    allMembers.forEach((uid, i) => { if (i < 4) slots[i] = String(uid); });
+    setTeamFormMembers(slots);
+    setTeamFormError('');
+    setShowCreateTeamModal(true);
+  };
+
+  const handleTeamFormSubmit = async () => {
+    if (!teamFormName.trim()) { setTeamFormError('Team name is required.'); return; }
+    const filledMembers = teamFormMembers.filter(m => m.trim());
+    if (filledMembers.length === 0) { setTeamFormError('At least 1 member is required.'); return; }
+
+    const payload = { name: teamFormName.trim() };
+    filledMembers.forEach((m, i) => { payload[`member${i + 1}`] = m.trim(); });
+
+    setTeamFormLoading(true);
+    setTeamFormError('');
+    try {
+      if (editingTeam) {
+        await updateAdminTeam(selectedKbcQuizId, editingTeam.id, payload, session?.token);
+      } else {
+        await createAdminTeam(selectedKbcQuizId, payload, session?.token);
+      }
+      setShowCreateTeamModal(false);
+      await refreshAdminTeamData();
+    } catch (err) {
+      setTeamFormError(err.message || 'Failed to save team.');
+    } finally {
+      setTeamFormLoading(false);
+    }
+  };
+
+  const handleDeleteTeam = async (teamId, teamName) => {
+    if (!window.confirm(`Delete team "${teamName}"? This cannot be undone.`)) return;
+    try {
+      await deleteAdminTeam(selectedKbcQuizId, teamId, session?.token);
+      await refreshAdminTeamData();
+    } catch (err) {
+      alert(err.message || 'Failed to delete team.');
+    }
+  };
+
   const handlePromoteToHotseat = async (studentId) => {
     try {
       setKbcLoading(true);
@@ -1289,17 +1581,19 @@ function AdminDashboardInner({ showBeautifulPopup }) {
   };
 
   const getNextStageValue = (current) => {
-    const idx = KBC_STAGES.findIndex(s => s.value === current);
-    if (idx !== -1 && idx < KBC_STAGES.length - 1) {
-      return KBC_STAGES[idx + 1].value;
+    const stages = getEnabledStages(kbcQuizDetail);
+    const idx = stages.findIndex(s => s.value === current);
+    if (idx !== -1 && idx < stages.length - 1) {
+      return stages[idx + 1].value;
     }
     return null;
   };
 
   const getPrevStageValue = (current) => {
-    const idx = KBC_STAGES.findIndex(s => s.value === current);
+    const stages = getEnabledStages(kbcQuizDetail);
+    const idx = stages.findIndex(s => s.value === current);
     if (idx > 0) {
-      return KBC_STAGES[idx - 1].value;
+      return stages[idx - 1].value;
     }
     return null;
   };
@@ -1461,14 +1755,19 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       registration_open_date: '', registration_open_time: '', 
       registration_close_date: '', registration_close_time: '', 
       max_participants: '100',
-      registration_fee: '0', visible_to_students: false, is_registration_open: false,
-      status: 'draft',
+      registration_fee: '0', visible_to_students: false,
+      status: 'auto',
       intro_title: 'Kaun Banega Crorepati',
       require_eligibility: false,
       eligibility_school: session?.user?.school_id || '',
       eligibility_programs: [],
       eligibility_branches: [],
-      host: ''
+      host: '',
+      has_prelim_round: true,
+      has_buzzer_round: true,
+      has_fff_round: true,
+      has_hotseat_round: true,
+      is_global: false
     });
     setShowModal(true);
   };
@@ -1505,17 +1804,126 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       max_participants: quiz.max_participants ? quiz.max_participants.toString() : '',
       registration_fee: quiz.registration_fee ? quiz.registration_fee.toString() : '0',
       visible_to_students: quiz.visible_to_students || false,
-      is_registration_open: quiz.is_registration_open || false,
-      status: quiz.status || 'draft',
+      // Only keep manual overrides in form; everything else is 'auto'
+      status: ['live', 'completed', 'cancelled'].includes(quiz.status) ? quiz.status : 'auto',
       intro_title: quiz.intro_title || 'Kaun Banega Crorepati',
       require_eligibility: !!(quiz.allowed_schools?.length || quiz.allowed_programs?.length || quiz.allowed_branches?.length),
       eligibility_school: quiz.allowed_schools?.[0] || session?.user?.school_id || '',
       eligibility_programs: quiz.allowed_programs || [],
       eligibility_branches: quiz.allowed_branches || [],
-      host: quiz.host || ''
+      host: quiz.host || '',
+      has_prelim_round: quiz.has_prelim_round !== false,
+      has_buzzer_round: quiz.has_buzzer_round !== false,
+      has_fff_round: quiz.has_fff_round !== false,
+      has_hotseat_round: quiz.has_hotseat_round !== false,
+      is_global: !quiz.allowed_schools || quiz.allowed_schools.length === 0
     });
     
     setShowModal(true);
+  };
+
+  const handleManageExpertsClick = async (quiz) => {
+    setExpertsModalQuizId(quiz.id);
+    setExpertsModalQuizTitle(quiz.title);
+    setShowExpertsModal(true);
+    setExpertForm({ id: null, name: '', designation: '', photo: null });
+    setExpertFormError('');
+    await fetchExperts(quiz.id);
+  };
+
+  const fetchExperts = async (quizId) => {
+    try {
+      setLoadingExperts(true);
+      const res = await fetch(`${API_BASE_URL}/quizzes/admin/${quizId}/get_experts/`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${session?.token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to fetch experts.');
+      setExpertsList(data || []);
+    } catch (err) {
+      setExpertFormError(err.message || 'Failed to fetch experts.');
+    } finally {
+      setLoadingExperts(false);
+    }
+  };
+
+  const handleSaveExpertSubmit = async (e) => {
+    e.preventDefault();
+    if (!expertsModalQuizId) return;
+
+    if (!expertForm.name.trim()) {
+      setExpertFormError('Expert name is required.');
+      return;
+    }
+
+    if (!expertForm.id && expertsList.length >= 5) {
+      setExpertFormError('Maximum of 5 experts allowed for a quiz.');
+      return;
+    }
+
+    try {
+      setSubmittingExpert(true);
+      setExpertFormError('');
+
+      const formDataObj = new FormData();
+      if (expertForm.id) {
+        formDataObj.append('expert_id', expertForm.id);
+      }
+      formDataObj.append('name', expertForm.name.trim());
+      formDataObj.append('designation', expertForm.designation.trim());
+      if (expertForm.photo) {
+        formDataObj.append('photo', expertForm.photo);
+      }
+
+      const res = await fetch(`${API_BASE_URL}/quizzes/admin/${expertsModalQuizId}/save_expert/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.token}` },
+        body: formDataObj
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to save expert.');
+
+      // Reset form
+      setExpertForm({ id: null, name: '', designation: '', photo: null });
+      // Re-fetch list
+      await fetchExperts(expertsModalQuizId);
+      
+      // Clear file input manually
+      const fileInput = document.getElementById('expert-photo-input');
+      if (fileInput) fileInput.value = '';
+
+    } catch (err) {
+      setExpertFormError(err.message || 'Failed to save expert.');
+    } finally {
+      setSubmittingExpert(false);
+    }
+  };
+
+  const handleDeleteExpert = async (expertId) => {
+    if (!expertsModalQuizId) return;
+
+    try {
+      setLoadingExperts(true);
+      const res = await fetch(`${API_BASE_URL}/quizzes/admin/${expertsModalQuizId}/delete_expert/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ expert_id: expertId })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to delete expert.');
+
+      await fetchExperts(expertsModalQuizId);
+    } catch (err) {
+      setExpertFormError(err.message || 'Failed to delete expert.');
+    } finally {
+      setLoadingExperts(false);
+    }
   };
 
   const handleDeleteClick = async (quizId) => {
@@ -1707,6 +2115,22 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       
       setManageQuestions(data);
       setSelectedManageQuiz(quiz);
+      
+      const defaultType = getDefaultQuestionType(quiz);
+      setNewQuestionData(prev => ({
+        ...prev,
+        text: '',
+        question_type: defaultType,
+        category: 'General',
+        marks: 1,
+        trivia: '',
+        choices: [
+          { text: '', is_correct: true, correct_order: null },
+          { text: '', is_correct: false, correct_order: null },
+          { text: '', is_correct: false, correct_order: null },
+          { text: '', is_correct: false, correct_order: null }
+        ]
+      }));
     } catch (err) {
       alert(err.message);
     }
@@ -1759,9 +2183,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       if (!res.ok) throw new Error(data.detail || 'Failed to add question');
       
       alert('Question added successfully!');
+      const defaultType = getDefaultQuestionType(selectedManageQuiz);
       setNewQuestionData({
         text: '',
-        question_type: 'regular',
+        question_type: defaultType,
         category: 'General',
         marks: 1,
         trivia: '',
@@ -1813,9 +2238,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       
       alert('Question updated successfully!');
       setEditingQuestion(null);
+      const defaultType = getDefaultQuestionType(selectedManageQuiz);
       setNewQuestionData({
         text: '',
-        question_type: 'regular',
+        question_type: defaultType,
         category: 'General',
         marks: 1,
         trivia: '',
@@ -1967,7 +2393,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
 
   const submitQuiz = async (isDraft) => {
     try {
-      if (!formData.eligibility_branches || formData.eligibility_branches.length === 0) {
+      if (!formData.is_global && (!formData.eligibility_branches || formData.eligibility_branches.length === 0)) {
         alert("Please select at least one Target Branch.");
         return;
       }
@@ -1976,7 +2402,6 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       
       if (isDraft) {
         payload.visible_to_students = false;
-        payload.is_registration_open = false;
         payload.status = 'draft';
       }
 
@@ -2001,12 +2426,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       }
       delete payload.registration_close_time;
       
+      // Map 'auto' to 'draft' in the DB (computed_status will override display)
+      if (payload.status === 'auto') payload.status = 'draft';
       payload.max_participants = payload.max_participants ? parseInt(payload.max_participants) : null;
       payload.registration_fee = payload.registration_fee ? parseFloat(payload.registration_fee) : 0.00;
       
-      payload.allowed_schools = payload.eligibility_school ? [payload.eligibility_school] : [];
-      payload.allowed_programs = payload.eligibility_programs || [];
-      payload.allowed_branches = payload.eligibility_branches || [];
+      if (payload.is_global) {
+        payload.allowed_schools = [];
+        payload.allowed_programs = [];
+        payload.allowed_branches = [];
+      } else {
+        payload.allowed_schools = payload.eligibility_school ? [payload.eligibility_school] : [];
+        payload.allowed_programs = payload.eligibility_programs || [];
+        payload.allowed_branches = payload.eligibility_branches || [];
+      }
+      delete payload.is_global;
       delete payload.require_eligibility;
       delete payload.eligibility_school;
       delete payload.eligibility_programs;
@@ -2091,7 +2525,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
       <aside className={`admin-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`} aria-label="Dashboard navigation">
         <div className="admin-sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: isSidebarCollapsed ? 'center' : 'space-between', width: '100%', gap: '0.5rem', minHeight: '56px' }}>
           <Link className="admin-brand" to="/" style={{ gap: isSidebarCollapsed ? '0' : '0.85rem', display: 'flex', alignItems: 'center', minHeight: 'auto', padding: 0 }}>
-            <span className="admin-brand-logo">{SYMBOLS.triangle}</span>
+            <span className="admin-brand-logo"><LogoIcon /></span>
             {!isSidebarCollapsed && <span className="admin-brand-text" style={{ whiteSpace: 'nowrap' }}>QuizVerse Admin</span>}
           </Link>
           <button 
@@ -2099,34 +2533,8 @@ function AdminDashboardInner({ showBeautifulPopup }) {
             className="admin-sidebar-toggle"
             type="button"
             aria-label="Toggle Sidebar"
-            style={{
-              background: 'rgba(212, 175, 55, 0.05)',
-              border: '1px solid rgba(212, 175, 55, 0.15)',
-              color: 'var(--admin-muted)',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              width: '28px',
-              height: '28px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '4px',
-              transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
-              padding: 0,
-              flexShrink: 0
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.color = 'var(--admin-text)';
-              e.currentTarget.style.background = 'rgba(212, 175, 55, 0.15)';
-              e.currentTarget.style.borderColor = 'rgba(212, 175, 55, 0.4)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.color = 'var(--admin-muted)';
-              e.currentTarget.style.background = 'rgba(212, 175, 55, 0.05)';
-              e.currentTarget.style.borderColor = 'rgba(212, 175, 55, 0.15)';
-            }}
           >
-            {isSidebarCollapsed ? '›' : '‹'}
+            {isSidebarCollapsed ? <ChevronRightIcon size={16} /> : <ChevronLeftIcon size={16} />}
           </button>
         </div>
 
@@ -2578,9 +2986,10 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                           key={quiz.id} 
                           className="admin-quiz-list-item"
                           style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '1.5rem',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 280px',
+                            gap: '2.5rem',
+                            alignItems: 'start',
                             background: 'rgba(255, 255, 255, 0.02)',
                             border: '1px solid var(--admin-border)',
                             borderRadius: '12px',
@@ -2589,305 +2998,333 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
                           }}
                         >
-                          {/* Top portion containing details (left) and secondary action panel (right) */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr auto',
-                            alignItems: 'center',
-                            gap: '2.5rem',
-                            width: '100%'
-                          }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', textAlign: 'left' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                                <h3 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '900', color: 'var(--admin-text)' }}>
-                                  {quiz.title}
-                                </h3>
-                                
-                                {quiz.is_archived && (
-                                  <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '4px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.3)', color: '#ff6b6b', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                                    ARCHIVED
-                                  </span>
-                                )}
-
-                                <span style={{
-                                  fontSize: '0.7rem',
-                                  padding: '0.2rem 0.6rem',
-                                  borderRadius: '4px',
-                                  fontWeight: 'bold',
-                                  fontFamily: 'monospace',
-                                  background: quiz.status === 'live' ? 'rgba(76,175,80,0.15)' : 'rgba(255,255,255,0.05)',
-                                  color: quiz.status === 'live' ? '#98ff98' : 'rgba(255,255,255,0.6)',
-                                  border: quiz.status === 'live' ? '1px solid rgba(76,175,80,0.3)' : '1px solid rgba(255,255,255,0.1)'
-                                }}>
-                                  {quiz.status.replace('_', ' ').toUpperCase()}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', textAlign: 'left' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                              <h3 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '900', color: 'var(--admin-text)' }}>
+                                {quiz.title}
+                              </h3>
+                              
+                              {quiz.is_archived && (
+                                <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '4px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.3)', color: '#ff6b6b', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                                  ARCHIVED
                                 </span>
-                              </div>
-                              
-                              <p style={{ margin: 0, color: 'var(--admin-muted)', fontSize: '0.92rem', lineHeight: '1.5' }}>
-                                {quiz.description || 'No event description provisioned yet.'}
-                              </p>
+                              )}
 
-                              <div className="admin-quiz-list-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--admin-muted)', fontFamily: 'monospace', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.6rem' }}>
-                                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                                  <span>👥 Enrolled: <strong style={{ color: 'var(--admin-text)' }}>{quiz.registered_count}</strong></span>
-                                  {quiz.event_date && <span>📅 Date: <strong style={{ color: 'var(--admin-text)' }}>{new Date(quiz.event_date).toLocaleDateString()}</strong></span>}
-                                </div>
-                                <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', marginTop: '0.4rem', background: 'rgba(255, 255, 255, 0.025)', padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>❓ Total: <strong style={{ color: '#ffeb3b', fontSize: '0.95rem' }}>{quiz.total_questions_count || 0}</strong></span>
-                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>📝 Prelim: <strong style={{ color: '#81c784', fontSize: '0.95rem' }}>{quiz.prelim_questions_count || 0}</strong></span>
-                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>⚡ FFF: <strong style={{ color: '#ffb74d', fontSize: '0.95rem' }}>{quiz.fff_questions_count || 0}</strong></span>
-                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>👑 Hotseat: <strong style={{ color: '#00e5ff', fontSize: '0.95rem' }}>{quiz.hotseat_1_questions_count || 0} / {quiz.hotseat_2_questions_count || 0} / {quiz.hotseat_3_questions_count || 0}</strong></span>
-                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>🔄 Switch: <strong style={{ color: '#f472b6', fontSize: '0.95rem' }}>{quiz.switch_categories_count || 0} / 6</strong></span>
-                                </div>
-                              </div>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '4px',
+                                fontWeight: 'bold',
+                                fontFamily: 'monospace',
+                                background: {
+                                  live: 'rgba(76,175,80,0.15)',
+                                  upcoming: 'rgba(33,150,243,0.15)',
+                                  registration_open: 'rgba(0,230,118,0.15)',
+                                  registration_closed: 'rgba(255,152,0,0.15)',
+                                  completed: 'rgba(156,39,176,0.15)',
+                                  cancelled: 'rgba(244,67,54,0.15)',
+                                  draft: 'rgba(255,255,255,0.05)',
+                                }[quiz.computed_status] || 'rgba(255,255,255,0.05)',
+                                color: {
+                                  live: '#98ff98',
+                                  upcoming: '#90caf9',
+                                  registration_open: '#00e676',
+                                  registration_closed: '#ffb74d',
+                                  completed: '#ce93d8',
+                                  cancelled: '#ef9a9a',
+                                  draft: 'rgba(255,255,255,0.6)',
+                                }[quiz.computed_status] || 'rgba(255,255,255,0.6)',
+                                border: '1px solid currentColor',
+                                opacity: 0.9,
+                              }}
+                              title="Auto-derived from registration dates"
+                            >
+                                {(quiz.computed_status || 'draft').replace(/_/g, ' ').toUpperCase()}
+                              </span>
                             </div>
+                            
+                            <p style={{ margin: 0, color: 'var(--admin-muted)', fontSize: '0.92rem', lineHeight: '1.5' }}>
+                              {quiz.description || 'No event description provisioned yet.'}
+                            </p>
 
-                            {/* Secondary Action Panel: buttons inside grid */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', width: '290px', flexShrink: 0 }}>
-                              
-                              {/* Small status indicator in top-right of panel */}
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', alignItems: 'center', marginBottom: '0.1rem', flexWrap: 'wrap' }}>
-                                {quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
-                                  <span className="badge-global-request blinking-border-gold" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.4)', color: 'rgb(212,175,55)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace', boxShadow: '0 0 10px rgba(212,175,55,0.2)' }}>
-                                    📢 GLOBAL REQUESTED
-                                  </span>
-                                )}
-                                {(!quiz.allowed_schools || quiz.allowed_schools.length === 0) && (
-                                  <span className="badge-global-scope" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(0,188,212,0.15)', border: '1px solid rgba(0,188,212,0.3)', color: 'rgb(0,188,212)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
-                                    🌐 GLOBAL EVENT
-                                  </span>
-                                )}
-                                {quiz.visible_to_students ? (
-                                  <span className="badge-published" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(76,175,80,0.15)', border: '1px solid rgba(76,175,80,0.3)', color: '#98ff98', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
-                                    🟢 PUBLISHED
-                                  </span>
-                                ) : (
-                                  <span className="badge-draft" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
-                                    ⚪ DRAFT
-                                  </span>
-                                )}
+                            <div className="admin-quiz-list-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--admin-muted)', fontFamily: 'monospace', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.6rem' }}>
+                              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                                <span>👥 Enrolled: <strong style={{ color: 'var(--admin-text)' }}>{quiz.registered_count}</strong></span>
+                                {quiz.event_date && <span>📅 Date: <strong style={{ color: 'var(--admin-text)' }}>{new Date(quiz.event_date).toLocaleDateString()}</strong></span>}
                               </div>
-
-                              {/* Content Creation Controls & Toggles */}
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                                <button 
-                                  className="dash-chip-btn glow-gold blinking-border-gold" 
-                                  onClick={() => {
-                                    setSelectedKbcQuizId(quiz.id);
-                                    setActiveTab('Live KBC Controller');
-                                  }}
-                                  style={{
-                                    borderColor: 'rgba(255, 215, 0, 0.95)',
-                                    color: '#ffd700',
-                                    background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 180, 0, 0.05) 100%)',
-                                    fontSize: '0.8rem',
-                                    padding: '0.6rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px',
-                                    boxShadow: '0 0 15px rgba(255, 215, 0, 0.35)',
-                                    textShadow: '0 0 6px rgba(255, 215, 0, 0.5)',
-                                    transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 0 25px rgba(255, 215, 0, 0.55)';
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 215, 0, 0.25) 0%, rgba(255, 180, 0, 0.1) 100%)';
-                                    e.currentTarget.style.transform = 'scale(1.03)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 215, 0, 0.35)';
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 180, 0, 0.05) 100%)';
-                                    e.currentTarget.style.transform = 'none';
-                                  }}
-                                >
-                                  🎙️ Live Console
-                                </button>
-
-                                <button 
-                                  className="dash-chip-btn" 
-                                  onClick={() => handleEditClick(quiz)}
-                                  style={{
-                                    borderColor: 'rgba(212, 175, 55, 0.45)',
-                                    color: 'rgb(212, 175, 55)',
-                                    background: 'rgba(212, 175, 55, 0.03)',
-                                    fontSize: '0.8rem',
-                                    padding: '0.6rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px'
-                                  }}
-                                >
-                                  ✏️ Edit Quiz
-                                </button>
-                                
-                                <label 
-                                  className="dash-chip-btn" 
-                                  style={{
-                                    borderColor: 'rgba(255, 255, 255, 0.4)',
-                                    color: 'var(--admin-text)',
-                                    cursor: 'pointer',
-                                    fontSize: '0.8rem',
-                                    padding: '0.6rem',
-                                    textAlign: 'center',
-                                    display: 'block',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px'
-                                  }}
-                                >
-                                  📥 Upload Excel
-                                  <input 
-                                    type="file" 
-                                    accept=".xlsx" 
-                                    style={{display: 'none'}} 
-                                    onChange={(e) => {
-                                      if (e.target.files[0]) {
-                                        handleUploadExcel(quiz.id, e.target.files[0]);
-                                        e.target.value = null;
-                                      }
-                                    }} 
-                                  />
-                                </label>
-
-                                <button 
-                                  className="dash-chip-btn" 
-                                  onClick={() => toggleQuizSetting(quiz.id, 'is_registration_open', quiz.is_registration_open)}
-                                  style={{
-                                    borderColor: quiz.is_registration_open ? 'rgb(var(--admin-cyan-rgb))' : 'var(--admin-border)',
-                                    color: quiz.is_registration_open ? 'rgb(var(--admin-cyan-rgb))' : 'var(--admin-muted)',
-                                    background: quiz.is_registration_open ? 'rgba(var(--admin-cyan-rgb), 0.05)' : 'transparent',
-                                    fontSize: '0.78rem',
-                                    padding: '0.6rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px'
-                                  }}
-                                >
-                                  {quiz.is_registration_open ? '🔓 Reg Open' : '🔒 Reg Closed'}
-                                </button>
-
-                                <button 
-                                  className="dash-chip-btn" 
-                                  onClick={() => handleDeleteClick(quiz.id)}
-                                  style={{
-                                    borderColor: 'rgba(255,80,80,0.4)',
-                                    color: 'rgb(255,80,80)',
-                                    background: 'rgba(255,80,80,0.03)',
-                                    fontSize: '0.8rem',
-                                    padding: '0.6rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px'
-                                  }}
-                                >
-                                  🗑️ Delete
-                                </button>
-
-                                <button 
-                                  className="dash-chip-btn" 
-                                  onClick={() => handleDownloadDetailedReport(quiz.id, quiz.title)}
-                                  style={{
-                                    borderColor: 'rgba(212,175,55,0.4)',
-                                    color: 'rgb(212,175,55)',
-                                    background: 'rgba(212,175,55,0.03)',
-                                    fontSize: '0.8rem',
-                                    padding: '0.6rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px'
-                                  }}
-                                >
-                                  📊 PDF Report
-                                </button>
-
-                                {session?.user?.is_super_admin && quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
-                                  <button 
-                                    className="dash-chip-btn glow-gold blinking-border-gold" 
-                                    onClick={() => handleApproveGlobalEvent(quiz)}
-                                    style={{
-                                      borderColor: '#ffd700',
-                                      color: '#ffd700',
-                                      background: 'rgba(255, 215, 0, 0.1)',
-                                      fontSize: '0.8rem',
-                                      padding: '0.6rem',
-                                      cursor: 'pointer',
-                                      fontWeight: 'bold',
-                                      borderRadius: '6px',
-                                      gridColumn: '1 / -1',
-                                      boxShadow: '0 0 10px rgba(255, 215, 0, 0.25)',
-                                      marginTop: '0.2rem'
-                                    }}
-                                  >
-                                    🌟 Approve Global Event
-                                  </button>
+                              <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', marginTop: '0.4rem', background: 'rgba(255, 255, 255, 0.025)', padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                                <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>❓ Total: <strong style={{ color: '#ffeb3b', fontSize: '0.95rem' }}>{quiz.total_questions_count || 0}</strong></span>
+                                {quiz.has_prelim_round !== false && (
+                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>📝 Prelim: <strong style={{ color: '#81c784', fontSize: '0.95rem' }}>{quiz.prelim_questions_count || 0}</strong></span>
                                 )}
-
-                                {!session?.user?.is_super_admin && quiz.allowed_schools?.length > 0 && !quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
-                                  <button 
-                                    className="dash-chip-btn" 
-                                    onClick={() => handleRequestGlobalEvent(quiz)}
-                                    style={{
-                                      borderColor: 'rgba(0,188,212,0.6)',
-                                      color: 'rgb(0,188,212)',
-                                      background: 'rgba(0,188,212,0.03)',
-                                      fontSize: '0.8rem',
-                                      padding: '0.6rem',
-                                      cursor: 'pointer',
-                                      fontWeight: 'bold',
-                                      borderRadius: '6px',
-                                      gridColumn: '1 / -1',
-                                      marginTop: '0.2rem'
-                                    }}
-                                  >
-                                    📢 Request Global Event
-                                  </button>
+                                {quiz.has_fff_round !== false && (
+                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>⚡ FFF: <strong style={{ color: '#ffb74d', fontSize: '0.95rem' }}>{quiz.fff_questions_count || 0}</strong></span>
+                                )}
+                                {quiz.has_buzzer_round !== false && (
+                                  <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>🚨 Buzzer: <strong style={{ color: '#ff5252', fontSize: '0.95rem' }}>{quiz.buzzer_questions_count || 0}</strong></span>
+                                )}
+                                {quiz.has_hotseat_round !== false && (
+                                  <>
+                                    <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>👑 Hotseat: <strong style={{ color: '#00e5ff', fontSize: '0.95rem' }}>{quiz.hotseat_1_questions_count || 0} / {quiz.hotseat_2_questions_count || 0} / {quiz.hotseat_3_questions_count || 0}</strong></span>
+                                    <span style={{ color: '#ffffff', fontSize: '0.85rem' }}>🔄 Switch: <strong style={{ color: '#f472b6', fontSize: '0.95rem' }}>{quiz.switch_categories_count || 0} / 6</strong></span>
+                                  </>
                                 )}
                               </div>
                             </div>
                           </div>
 
-                          {/* Large, beautiful glowing Questions button centered at the bottom */}
-                          <div style={{
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            width: '100%',
-                            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                            paddingTop: '1.2rem',
-                            marginTop: '0.2rem'
-                          }}>
-                            <button 
-                              className="dash-chip-btn" 
-                              onClick={() => handleManageQuestionsClick(quiz)}
-                              style={{
-                                borderColor: 'rgba(255, 255, 255, 0.3)',
-                                color: '#ffffff',
-                                background: 'rgba(255, 255, 255, 0.05)',
-                                fontWeight: 'bold',
-                                fontSize: '1.05rem',
-                                padding: '0.8rem 3rem',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.05em',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.5rem',
-                                cursor: 'pointer',
-                                borderRadius: '24px',
-                                transition: 'all 0.2s ease',
-                                width: '70%',
-                                maxWidth: '400px'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                                e.currentTarget.style.transform = 'none';
-                              }}
-                            >
-                              📋 Questions
-                            </button>
+                          {/* Secondary Action Panel: structured elegantly */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', width: '280px', flexShrink: 0 }}>
+                            
+                            {/* Small status indicator in top-right of panel */}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
+                                <span className="badge-global-request blinking-border-gold" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.4)', color: 'rgb(212,175,55)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace', boxShadow: '0 0 10px rgba(212,175,55,0.2)' }}>
+                                  📢 GLOBAL REQUESTED
+                                </span>
+                              )}
+                              {(!quiz.allowed_schools || quiz.allowed_schools.length === 0) && (
+                                <span className="badge-global-scope" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(0,188,212,0.15)', border: '1px solid rgba(0,188,212,0.3)', color: 'rgb(0,188,212)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
+                                  🌐 GLOBAL EVENT
+                                </span>
+                              )}
+                              {quiz.visible_to_students ? (
+                                <span className="badge-published" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(76,175,80,0.15)', border: '1px solid rgba(76,175,80,0.3)', color: '#98ff98', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
+                                  🟢 PUBLISHED
+                                </span>
+                              ) : (
+                                <span className="badge-draft" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontWeight: 'bold', fontSize: '0.68rem', gap: '0.3rem', fontFamily: 'monospace' }}>
+                                  ⚪ DRAFT
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Primary CTAs: Enter Live Console & Manage Questions */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              <button 
+                                className="dash-chip-btn glow-gold blinking-border-gold" 
+                                onClick={() => {
+                                  setSelectedKbcQuizId(quiz.id);
+                                  setActiveTab('Live KBC Controller');
+                                }}
+                                style={{
+                                  borderColor: 'rgba(255, 215, 0, 0.95)',
+                                  color: '#ffd700',
+                                  background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 180, 0, 0.05) 100%)',
+                                  fontSize: '0.82rem',
+                                  padding: '0.65rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px',
+                                  boxShadow: '0 0 15px rgba(255, 215, 0, 0.35)',
+                                  textShadow: '0 0 6px rgba(255, 215, 0, 0.5)',
+                                  transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+                                  width: '100%'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.boxShadow = '0 0 25px rgba(255, 215, 0, 0.55)';
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 215, 0, 0.25) 0%, rgba(255, 180, 0, 0.1) 100%)';
+                                  e.currentTarget.style.transform = 'scale(1.02)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 215, 0, 0.35)';
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 180, 0, 0.05) 100%)';
+                                  e.currentTarget.style.transform = 'none';
+                                }}
+                              >
+                                🎙️ Enter Live Console
+                              </button>
+
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleManageQuestionsClick(quiz)}
+                                style={{
+                                  borderColor: 'rgba(0, 230, 118, 0.75)',
+                                  color: '#00e676',
+                                  background: 'rgba(0, 230, 118, 0.04)',
+                                  fontWeight: 'bold',
+                                  fontSize: '0.82rem',
+                                  padding: '0.65rem',
+                                  cursor: 'pointer',
+                                  borderRadius: '6px',
+                                  boxShadow: '0 0 10px rgba(0, 230, 118, 0.15)',
+                                  transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+                                  width: '100%'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(0, 230, 118, 0.08)';
+                                  e.currentTarget.style.boxShadow = '0 0 20px rgba(0, 230, 118, 0.3)';
+                                  e.currentTarget.style.transform = 'scale(1.02)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = 'rgba(0, 230, 118, 0.04)';
+                                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 230, 118, 0.15)';
+                                  e.currentTarget.style.transform = 'none';
+                                }}
+                              >
+                                📋 Manage Questions
+                              </button>
+                            </div>
+
+                            {/* Divider */}
+                            <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+                            {/* Secondary Grid: Edit, Experts, Upload, Report */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleEditClick(quiz)}
+                                style={{
+                                  borderColor: 'rgba(212, 175, 55, 0.45)',
+                                  color: 'rgb(212, 175, 55)',
+                                  background: 'rgba(212, 175, 55, 0.03)',
+                                  fontSize: '0.78rem',
+                                  padding: '0.55rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px'
+                                }}
+                              >
+                                ✏️ Edit Quiz
+                              </button>
+
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleManageExpertsClick(quiz)}
+                                style={{
+                                  borderColor: 'rgba(56, 189, 248, 0.45)',
+                                  color: 'rgb(56, 189, 248)',
+                                  background: 'rgba(56, 189, 248, 0.03)',
+                                  fontSize: '0.78rem',
+                                  padding: '0.55rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px'
+                                }}
+                              >
+                                🎓 Experts
+                              </button>
+                              
+                              <label 
+                                className="dash-chip-btn" 
+                                style={{
+                                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                                  color: 'var(--admin-text)',
+                                  cursor: 'pointer',
+                                  fontSize: '0.78rem',
+                                  padding: '0.55rem',
+                                  textAlign: 'center',
+                                  display: 'block',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px'
+                                }}
+                              >
+                                📥 Excel Import
+                                <input 
+                                  type="file" 
+                                  accept=".xlsx" 
+                                  style={{display: 'none'}} 
+                                  onChange={(e) => {
+                                    if (e.target.files[0]) {
+                                      handleUploadExcel(quiz.id, e.target.files[0]);
+                                      e.target.value = null;
+                                    }
+                                  }} 
+                                />
+                              </label>
+
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleDownloadDetailedReport(quiz.id, quiz.title)}
+                                style={{
+                                  borderColor: 'rgba(212,175,55,0.4)',
+                                  color: 'rgb(212,175,55)',
+                                  background: 'rgba(212,175,55,0.03)',
+                                  fontSize: '0.78rem',
+                                  padding: '0.55rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px'
+                                }}
+                              >
+                                📊 PDF Report
+                              </button>
+                            </div>
+
+                            {/* Divider */}
+                            <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+                            {/* Utility Row: Delete */}
+                            <div style={{ display: 'flex', width: '100%' }}>
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleDeleteClick(quiz.id)}
+                                style={{
+                                  borderColor: 'rgba(255,80,80,0.4)',
+                                  color: 'rgb(255,80,80)',
+                                  background: 'rgba(255,80,80,0.03)',
+                                  fontSize: '0.78rem',
+                                  padding: '0.55rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px',
+                                  width: '100%',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255,80,80,0.08)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255,80,80,0.03)';
+                                }}
+                              >
+                                🗑️ Delete Quiz
+                              </button>
+                            </div>
+
+                            {/* Approve / Request Global Events */}
+                            {session?.user?.is_super_admin && quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
+                              <button 
+                                className="dash-chip-btn glow-gold blinking-border-gold" 
+                                onClick={() => handleApproveGlobalEvent(quiz)}
+                                style={{
+                                  borderColor: '#ffd700',
+                                  color: '#ffd700',
+                                  background: 'rgba(255, 215, 0, 0.1)',
+                                  fontSize: '0.8rem',
+                                  padding: '0.6rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px',
+                                  boxShadow: '0 0 10px rgba(255, 215, 0, 0.25)',
+                                  width: '100%',
+                                  marginTop: '0.2rem'
+                                }}
+                              >
+                                🌟 Approve Global Event
+                              </button>
+                            )}
+
+                            {!session?.user?.is_super_admin && quiz.allowed_schools?.length > 0 && !quiz.description?.includes('[SYSTEM_GLOBAL_REQUEST]') && (
+                              <button 
+                                className="dash-chip-btn" 
+                                onClick={() => handleRequestGlobalEvent(quiz)}
+                                style={{
+                                  borderColor: 'rgba(0,188,212,0.6)',
+                                  color: 'rgb(0,188,212)',
+                                  background: 'rgba(0,188,212,0.03)',
+                                  fontSize: '0.8rem',
+                                  padding: '0.6rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px',
+                                  width: '100%',
+                                  marginTop: '0.2rem'
+                                }}
+                              >
+                                📢 Request Global Event
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2961,7 +3398,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                       marginRight: '0.5rem'
                     }}>
                       <span className="pulse-dot" style={{ background: kbcQuizDetail?.status === 'live' ? '#4caf50' : '#ffb300' }}></span>
-                      {kbcQuizDetail?.status === 'live' ? 'EVENT LIVE' : `STANDBY (${kbcQuizDetail?.status?.replace('_', ' ').toUpperCase()})`}
+                      {kbcQuizDetail?.status === 'live' ? 'EVENT LIVE' : `STANDBY (${(kbcQuizDetail?.computed_status || kbcQuizDetail?.status || 'draft').replace(/_/g, ' ').toUpperCase()})`}
                     </span>
                     {kbcQuizDetail?.status !== 'live' ? (
                       <button 
@@ -3040,47 +3477,63 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                 </div>
 
                 {/* REDESIGNED: KBC Visual 5-Phase Roadmap Bar */}
-                <div className="kbc-roadmap-container">
-                  <div className="kbc-roadmap-track" />
-                  <div 
-                    className="kbc-roadmap-track-fill" 
-                    style={{ width: `${((getActivePhaseNum(kbcQuizDetail?.current_stage) - 1) / 5) * 100}%` }}
-                  />
-                  <div className="kbc-roadmap-steps">
-                    {KBC_PHASES.map((phase) => {
-                      const activePhase = getActivePhaseNum(kbcQuizDetail?.current_stage);
-                      const isActive = phase.num === activePhase;
-                      const isPassed = phase.num < activePhase;
-                      const phaseClass = isActive ? 'active' : isPassed ? 'passed' : 'future';
+                {(() => {
+                  const enabledPhases = getEnabledPhases(kbcQuizDetail);
+                  const activePhaseNum = getActivePhaseNum(kbcQuizDetail?.current_stage);
+                  const activePhaseObj = enabledPhases.find(p => p.num === activePhaseNum);
+                  const activeIndex = enabledPhases.indexOf(activePhaseObj);
+                  const progressPercent = enabledPhases.length > 1 ? (activeIndex / (enabledPhases.length - 1)) * 100 : 0;
 
-                      // Find first stage value for this phase to support clickable phase navigation shortcuts
-                      let targetStageVal = 'regular';
-                      if (phase.num === 2) targetStageVal = 'batch_selection';
-                      else if (phase.num === 3) targetStageVal = 'buzzer_round';
-                      else if (phase.num === 4) targetStageVal = 'fff_batch_1';
-                      else if (phase.num === 5) targetStageVal = 'hotseat_batch_1';
-                      else if (phase.num === 6) targetStageVal = 'completed';
+                  return (
+                    <div className="kbc-roadmap-container">
+                      <div className="kbc-roadmap-track" />
+                      <div 
+                        className="kbc-roadmap-track-fill" 
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                      <div className="kbc-roadmap-steps">
+                        {enabledPhases.map((phase) => {
+                          const isActive = phase.num === activePhaseNum;
+                          const phaseIndex = enabledPhases.indexOf(phase);
+                          const isPassed = phaseIndex < activeIndex;
+                          const phaseClass = isActive ? 'active' : isPassed ? 'passed' : 'future';
 
-                      return (
-                        <button
-                          key={phase.num}
-                          onClick={() => handleUpdateStage(targetStageVal)}
-                          disabled={kbcLoading}
-                          className={`kbc-roadmap-step ${phaseClass}`}
-                          title={`Switch directly to: ${phase.label}`}
-                        >
-                          <div className="roadmap-medallion">
-                            {isPassed ? '✓' : phase.icon}
-                          </div>
-                          <div className="roadmap-label-wrap">
-                            <span className="roadmap-num">PHASE 0{phase.num}</span>
-                            <strong className="roadmap-title">{phase.label}</strong>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                          // Find first stage value for this phase to support clickable phase navigation shortcuts
+                          let targetStageVal = 'regular';
+                          if (phase.num === 2) targetStageVal = 'batch_selection';
+                          else if (phase.num === 3) targetStageVal = 'buzzer_round';
+                          else if (phase.num === 4) targetStageVal = 'fff_batch_1';
+                          else if (phase.num === 5) targetStageVal = 'hotseat_batch_1';
+                          else if (phase.num === 6) targetStageVal = 'completed';
+
+                          // Adjust targetStageVal to first enabled stage in this phase if targetStageVal is disabled
+                          const stages = getEnabledStages(kbcQuizDetail);
+                          if (phase.num === 4 && !stages.some(s => s.value === 'fff_batch_1') && stages.some(s => s.value === 'hotseat_batch_1')) {
+                            targetStageVal = 'hotseat_batch_1';
+                          }
+
+                          return (
+                            <button
+                              key={phase.num}
+                              onClick={() => handleUpdateStage(targetStageVal)}
+                              disabled={kbcLoading}
+                              className={`kbc-roadmap-step ${phaseClass}`}
+                              title={`Switch directly to: ${phase.label}`}
+                            >
+                              <div className="roadmap-medallion">
+                                {isPassed ? '✓' : phase.icon}
+                              </div>
+                              <div className="roadmap-label-wrap">
+                                <span className="roadmap-num">PHASE 0{phase.displayNum}</span>
+                                <strong className="roadmap-title">{phase.label}</strong>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Split-Screen 2-Column Deck Workspace */}
                 <div className="kbc-control-deck" style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '2rem', marginTop: '2rem', alignItems: 'start' }}>
@@ -3197,7 +3650,7 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                           Warning: Force-shifting to arbitrary stages outside the standard event progression should only be done for debugging or custom overrides.
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem' }}>
-                          {KBC_STAGES.map((stage, idx) => {
+                          {getEnabledStages(kbcQuizDetail).map((stage, idx) => {
                             const isCurrent = kbcQuizDetail?.current_stage === stage.value;
                             return (
                               <button
@@ -3222,6 +3675,105 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                               </button>
                             );
                           })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* LIVE ROUND TOGGLE CONFIGURATION CARD */}
+                    {kbcQuizDetail && (
+                      <div className="kbc-panel round-configuration-card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                          <h3 style={{ margin: 0 }}>Round Configuration</h3>
+                          <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: 'rgba(255,255,255,0.5)' }}>LIVE SYNC</span>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', margin: '0 0 1.2rem 0', lineHeight: '1.4' }}>
+                          Toggle rounds live on the fly. Progression timeline and roadmap will adjust instantly.
+                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={kbcQuizDetail.has_prelim_round !== false} 
+                              disabled={kbcLoading}
+                              onChange={async e => {
+                                try {
+                                  setKbcLoading(true);
+                                  await updateAdminQuiz(selectedKbcQuizId, { has_prelim_round: e.target.checked }, session?.token);
+                                  await fetchKbcControllerData(selectedKbcQuizId);
+                                } catch (err) {
+                                  alert(err.message || 'Failed to update round settings');
+                                } finally {
+                                  setKbcLoading(false);
+                                }
+                              }} 
+                              style={{ width: '16px', height: '16px', accentColor: '#ffb300' }} 
+                            />
+                            📝 Preliminary MCQ Round
+                          </label>
+
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={kbcQuizDetail.has_buzzer_round !== false} 
+                              disabled={kbcLoading}
+                              onChange={async e => {
+                                try {
+                                  setKbcLoading(true);
+                                  await updateAdminQuiz(selectedKbcQuizId, { has_buzzer_round: e.target.checked }, session?.token);
+                                  await fetchKbcControllerData(selectedKbcQuizId);
+                                } catch (err) {
+                                  alert(err.message || 'Failed to update round settings');
+                                } finally {
+                                  setKbcLoading(false);
+                                }
+                              }} 
+                              style={{ width: '16px', height: '16px', accentColor: '#ffb300' }} 
+                            />
+                            🚨 Buzzer Round
+                          </label>
+
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={kbcQuizDetail.has_fff_round !== false} 
+                              disabled={kbcLoading}
+                              onChange={async e => {
+                                try {
+                                  setKbcLoading(true);
+                                  await updateAdminQuiz(selectedKbcQuizId, { has_fff_round: e.target.checked }, session?.token);
+                                  await fetchKbcControllerData(selectedKbcQuizId);
+                                } catch (err) {
+                                  alert(err.message || 'Failed to update round settings');
+                                } finally {
+                                  setKbcLoading(false);
+                                }
+                              }} 
+                              style={{ width: '16px', height: '16px', accentColor: '#ffb300' }} 
+                            />
+                            ⚡ Fastest Finger First (FFF)
+                          </label>
+
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={kbcQuizDetail.has_hotseat_round !== false} 
+                              disabled={kbcLoading}
+                              onChange={async e => {
+                                try {
+                                  setKbcLoading(true);
+                                  await updateAdminQuiz(selectedKbcQuizId, { has_hotseat_round: e.target.checked }, session?.token);
+                                  await fetchKbcControllerData(selectedKbcQuizId);
+                                } catch (err) {
+                                  alert(err.message || 'Failed to update round settings');
+                                } finally {
+                                  setKbcLoading(false);
+                                }
+                              }} 
+                              style={{ width: '16px', height: '16px', accentColor: '#ffb300' }} 
+                            />
+                            🎙️ Hotseat (Main Stage)
+                          </label>
                         </div>
                       </div>
                     )}
@@ -3324,11 +3876,14 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                               }}
                             >
                               <option value="">-- Choose Contestant --</option>
-                              {prelimScoresList.map(score => (
-                                <option key={score.student_id} value={score.student_id}>
-                                  {score.student_name} ({score.score} pts)
-                                </option>
-                              ))}
+                              {kbcEnrolledStudents.map(studentReg => {
+                                const scoreInfo = prelimScoresList.find(s => s.student_id === studentReg.student_id);
+                                return (
+                                  <option key={studentReg.student_id} value={studentReg.student_id}>
+                                    {studentReg.student_name} {scoreInfo ? `(${scoreInfo.score} pts)` : '(No prelim score)'} - {studentReg.student_email}
+                                  </option>
+                                );
+                              })}
                             </select>
                             <button
                               onClick={() => {
@@ -3595,64 +4150,116 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                                   </div>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                                  {Array.from({ length: buzzerCount }, (_, i) => i + 1).map(bNum => {
+                                    {Array.from({ length: buzzerCount }, (_, i) => i + 1).map(bNum => {
                                     const bStr = String(bNum);
                                     const currentMap = editingMappings[bStr] || { name: '', score: 0, team_id: '' };
-                                    
+                                    const assignedTeam = currentMap.team_id
+                                      ? adminTeams.find(t => String(t.id) === String(currentMap.team_id))
+                                      : null;
+                                    const memberNames = assignedTeam
+                                      ? [assignedTeam.member1_name, assignedTeam.member2_name, assignedTeam.member3_name, assignedTeam.member4_name].filter(Boolean)
+                                      : [];
+
                                     return (
-                                      <div key={bNum} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                      <div key={bNum} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '8px', border: assignedTeam ? '1px solid rgba(0,212,255,0.2)' : '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {/* Header row */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                          <strong style={{ fontSize: '0.8rem', color: 'var(--admin-cyan)' }}>Buzzer #{bNum}</strong>
+                                          <strong style={{ fontSize: '0.8rem', color: 'var(--admin-cyan)' }}>Podium #{bNum}</strong>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                             <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>Score:</span>
-                                            <input 
-                                              type="number" 
-                                              style={{ width: '55px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.1rem 0.3rem', fontSize: '0.75rem' }}
+                                            <input
+                                              type="number"
+                                              style={{ width: '55px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'white', borderRadius: '4px', padding: '0.1rem 0.3rem', fontSize: '0.75rem' }}
                                               value={currentMap.score}
-                                              onChange={e => {
-                                                setEditingMappings({
-                                                  ...editingMappings,
-                                                  [bStr]: { ...currentMap, score: parseInt(e.target.value) || 0 }
-                                                });
-                                              }}
+                                              onChange={e => setEditingMappings({ ...editingMappings, [bStr]: { ...currentMap, score: parseInt(e.target.value) || 0 } })}
                                             />
                                           </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                          <select 
-                                            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.2rem', fontSize: '0.75rem' }}
-                                            value={currentMap.team_id || ''}
-                                            onChange={e => {
-                                              const selectedTeamId = e.target.value;
-                                              const selectedTeam = buzzerTeams.find(t => String(t.id) === selectedTeamId);
-                                              setEditingMappings({
-                                                ...editingMappings,
-                                                [bStr]: { 
-                                                  ...currentMap, 
-                                                  team_id: selectedTeamId,
-                                                  name: selectedTeam ? selectedTeam.name : (currentMap.name || `Podium ${bNum}`)
-                                                }
-                                              });
+
+                                        {/* Custom team picker */}
+                                        <div style={{ position: 'relative' }}>
+                                          {/* Trigger button */}
+                                          <button
+                                            onClick={() => setEditingBuzzerNameId(editingBuzzerNameId === bStr ? null : bStr)}
+                                            style={{
+                                              width: '100%', textAlign: 'left', background: assignedTeam ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.05)',
+                                              border: assignedTeam ? '1px solid rgba(0,212,255,0.3)' : '1px solid rgba(255,255,255,0.12)',
+                                              color: 'white', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.8rem',
+                                              cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem'
                                             }}
                                           >
-                                            <option value="">-- Associate Team --</option>
-                                            {buzzerTeams.map(t => (
-                                              <option key={t.id} value={t.id}>{t.name}</option>
-                                            ))}
-                                          </select>
-                                          <input 
-                                            type="text" 
-                                            placeholder="Custom Name"
-                                            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '4px', padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
-                                            value={currentMap.name || ''}
-                                            onChange={e => {
-                                              setEditingMappings({
-                                                ...editingMappings,
-                                                [bStr]: { ...currentMap, name: e.target.value }
-                                              });
-                                            }}
-                                          />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                              {assignedTeam ? `👥 ${assignedTeam.name}` : '— Assign Team —'}
+                                            </span>
+                                            <span style={{ fontSize: '0.65rem', opacity: 0.6 }}>{editingBuzzerNameId === bStr ? '▲' : '▼'}</span>
+                                          </button>
+
+                                          {/* Custom dropdown panel */}
+                                          {editingBuzzerNameId === bStr && (
+                                            <div style={{
+                                              position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 9000,
+                                              background: '#1e1e3a', border: '1px solid rgba(0,212,255,0.25)', borderRadius: '8px',
+                                              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', overflow: 'hidden', maxHeight: '260px', overflowY: 'auto'
+                                            }}>
+                                              {/* Clear option */}
+                                              <button
+                                                onClick={() => {
+                                                  setEditingMappings({ ...editingMappings, [bStr]: { ...currentMap, team_id: '', name: `Podium ${bNum}` } });
+                                                  setEditingBuzzerNameId(null);
+                                                }}
+                                                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', padding: '0.5rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer' }}
+                                              >
+                                                ✕ Clear Assignment
+                                              </button>
+
+                                              {adminTeams.length === 0 && (
+                                                <div style={{ padding: '0.75rem', fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>No teams yet — students create teams first.</div>
+                                              )}
+
+                                              {adminTeams.map(t => {
+                                                const tMembers = [t.member1_name, t.member2_name, t.member3_name, t.member4_name].filter(Boolean);
+                                                const isSelected = String(t.id) === String(currentMap.team_id);
+                                                return (
+                                                  <button
+                                                    key={t.id}
+                                                    onClick={() => {
+                                                      setEditingMappings({ ...editingMappings, [bStr]: { ...currentMap, team_id: String(t.id), name: t.name } });
+                                                      setEditingBuzzerNameId(null);
+                                                    }}
+                                                    style={{
+                                                      width: '100%', textAlign: 'left', background: isSelected ? 'rgba(0,212,255,0.1)' : 'none',
+                                                      border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                                      color: 'white', padding: '0.55rem 0.75rem', cursor: 'pointer',
+                                                      display: 'flex', flexDirection: 'column', gap: '0.3rem'
+                                                    }}
+                                                  >
+                                                    <span style={{ fontWeight: '600', fontSize: '0.85rem', color: isSelected ? '#00d4ff' : 'white' }}>
+                                                      {isSelected ? '✓ ' : ''}{t.name}
+                                                    </span>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                                      {tMembers.map((mn, mi) => (
+                                                        <span key={mi} style={{ background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.25)', color: '#c4b5fd', borderRadius: '8px', padding: '0.05rem 0.4rem', fontSize: '0.65rem' }}>
+                                                          {mi === 0 ? '👑' : '👤'} {mn}
+                                                        </span>
+                                                      ))}
+                                                    </div>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
+
+                                        {/* Member name chips (after selection) */}
+                                        {memberNames.length > 0 && (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                            {memberNames.map((mn, mi) => (
+                                              <span key={mi} style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.25)', color: '#67e8f9', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.65rem', fontWeight: '500' }}>
+                                                {mi === 0 ? '👑' : '👤'} {mn}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -3665,7 +4272,81 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                               </div>
                             )}
 
-                            {/* MAIN ACTIVE PLAYING GRID */}
+                            {/* TEAM REFERENCE PANEL (read-only — students create teams) */}
+                            {isBuzzerMappingEdit && (
+                              <div className="kbc-panel sub-panel" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                                  <h4 style={{ margin: 0 }}>👥 Registered Teams</h4>
+                                  <button
+                                    onClick={refreshAdminTeamData}
+                                    style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '0.3rem 0.7rem', fontSize: '0.75rem', cursor: 'pointer' }}
+                                  >
+                                    🔄 Refresh
+                                  </button>
+                                </div>
+
+                                {/* Solo / Unteamed players warning */}
+                                {unteamedPlayers.length > 0 && (
+                                  <div style={{ marginBottom: '0.8rem', padding: '0.5rem 0.7rem', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '6px' }}>
+                                    <div style={{ fontSize: '0.75rem', color: '#fbbf24', fontWeight: '600', marginBottom: '0.35rem' }}>⚡ Not yet in a team ({unteamedPlayers.length} players)</div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                      {unteamedPlayers.map(p => (
+                                        <span key={p.id} style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', color: '#fbbf24', borderRadius: '10px', padding: '0.15rem 0.55rem', fontSize: '0.7rem' }}>
+                                          👤 {p.full_name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    <p style={{ fontSize: '0.68rem', color: 'rgba(251,191,36,0.6)', margin: '0.4rem 0 0 0' }}>These players haven't formed a team yet. Ask them to register as a team first.</p>
+                                  </div>
+                                )}
+
+                                {/* Teams list — read-only */}
+                                {adminTeams.length === 0 ? (
+                                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', textAlign: 'center', padding: '1.5rem 0' }}>
+                                    <div style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>👥</div>
+                                    No teams yet. Students register their team from the quiz page.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '320px', overflowY: 'auto' }}>
+                                    {adminTeams.map(team => {
+                                      const members = [team.member1_name, team.member2_name, team.member3_name, team.member4_name].filter(Boolean);
+                                      const emails  = [team.member1_email, team.member2_email, team.member3_email, team.member4_email].filter(Boolean);
+                                      const podiumNum = team.podium;
+                                      return (
+                                        <div key={team.id} style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', padding: '0.65rem 0.8rem' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                                            <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'white' }}>{team.name}</span>
+                                            {podiumNum ? (
+                                              <span style={{ background: 'rgba(0,212,255,0.15)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.65rem', fontWeight: '600' }}>
+                                                ✓ Podium {podiumNum}
+                                              </span>
+                                            ) : (
+                                              <span style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.35)', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.65rem' }}>
+                                                Not assigned
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                            {members.map((mn, mi) => (
+                                              <span key={mi} title={emails[mi] || ''} style={{
+                                                background: mi === 0 ? 'rgba(251,191,36,0.12)' : 'rgba(124,58,237,0.12)',
+                                                border: mi === 0 ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(124,58,237,0.3)',
+                                                color: mi === 0 ? '#fbbf24' : '#a78bfa',
+                                                borderRadius: '12px', padding: '0.15rem 0.55rem', fontSize: '0.68rem', fontWeight: '500', cursor: 'help'
+                                              }}>
+                                                {mi === 0 ? '👑' : '👤'} {mn}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+
                             {!isBuzzerMappingEdit && (
                               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
                                 
@@ -3918,11 +4599,62 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                                         </thead>
                                         <tbody>
                                           {Object.entries(kbcLiveState.buzzer_state.buzzer_mappings)
+                                            .filter(([bId]) => parseInt(bId, 10) <= (kbcLiveState.buzzer_state.buzzer_count || 15))
                                             .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
                                             .map(([bId, details]) => (
                                               <tr key={bId} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                                                 <td style={{ padding: '0.35rem 0', fontWeight: 'bold', color: 'var(--admin-cyan)' }}>#{bId}</td>
-                                                <td style={{ color: 'rgba(255,255,255,0.85)' }}>{details.name}</td>
+                                                <td style={{ color: 'rgba(255,255,255,0.85)' }}>
+                                                  {editingBuzzerNameId === bId ? (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                      <input 
+                                                        type="text" 
+                                                        value={tempBuzzerName} 
+                                                        onChange={e => setTempBuzzerName(e.target.value)} 
+                                                        style={{ 
+                                                          background: 'rgba(255,255,255,0.08)', 
+                                                          border: '1px solid rgba(0, 212, 255, 0.4)', 
+                                                          color: 'white', 
+                                                          borderRadius: '4px', 
+                                                          padding: '0.15rem 0.4rem', 
+                                                          fontSize: '0.75rem',
+                                                          width: '120px'
+                                                        }} 
+                                                      />
+                                                      <button 
+                                                        onClick={() => handleSaveBuzzerNameInline(bId, tempBuzzerName)}
+                                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer', fontWeight: 'bold' }}
+                                                      >
+                                                        Save
+                                                      </button>
+                                                      <button 
+                                                        onClick={() => setEditingBuzzerNameId(null)}
+                                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer', fontWeight: 'bold' }}
+                                                      >
+                                                        Cancel
+                                                      </button>
+                                                    </div>
+                                                  ) : (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                      <span>{details.name}</span>
+                                                      <button 
+                                                        onClick={() => { setEditingBuzzerNameId(bId); setTempBuzzerName(details.name); }} 
+                                                        style={{ 
+                                                          background: 'none', 
+                                                          border: 'none', 
+                                                          color: 'var(--admin-cyan)', 
+                                                          cursor: 'pointer', 
+                                                          fontSize: '0.75rem', 
+                                                          padding: 0,
+                                                          opacity: 0.7
+                                                        }}
+                                                        title="Edit Name"
+                                                      >
+                                                        ✏️
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </td>
                                                 <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'gold' }}>{details.score || 0} pts</td>
                                               </tr>
                                             ))}
@@ -3970,87 +4702,184 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                             <tbody>
                               {!fffResultsData?.results || fffResultsData.results.length === 0 ? (
                                 <tr><td colSpan="7" className="text-center">No submissions received yet...</td></tr>
-                              ) : (
-                                fffResultsData.results.map((res, idx) => {
-                                  const isWinner = res.is_correct && idx === 0;
-                                  return (
-                                    <tr key={res.id} className={isWinner ? 'fff-winner-row' : ''}>
-                                      <td>
-                                        {isWinner ? (
-                                          <span className="winner-crown">👑 #1 Winner</span>
-                                        ) : (
-                                          `#${idx + 1}`
-                                        )}
-                                      </td>
-                                      <td className="text-gold font-bold">{res.student_name}</td>
-                                      <td>{res.player_id}</td>
-                                      <td className="font-mono text-cyan" style={{ fontSize: '0.85rem' }}>
-                                        {(() => {
-                                          if (res.submitted_sequence) {
-                                            const choiceIds = res.submitted_sequence.split(',');
-                                            const arrangedLetters = choiceIds.map(cid => {
-                                              const choiceIndex = fffResultsData.question.choices?.findIndex(c => String(c.id) === cid);
-                                              return choiceIndex !== -1 ? ['A','B','C','D'][choiceIndex] : '?';
-                                            });
-                                            return arrangedLetters.join(' → ');
-                                          }
-                                          return res.selected_choice_text || 'No selection';
-                                        })()}
-                                      </td>
-                                      <td className="text-pink font-mono font-bold">{res.time_taken_seconds?.toFixed(3)}s</td>
-                                      <td>
-                                        {res.is_correct ? (
-                                          <span className="badge-correct">CORRECT</span>
-                                        ) : (
-                                          <span className="badge-incorrect">INCORRECT</span>
-                                        )}
-                                      </td>
-                                      <td>
-                                        {(() => {
-                                          const stage = kbcQuizDetail?.current_stage;
-                                          const isAlreadyPromoted = 
-                                            (stage === 'fff_batch_1' && kbcQuizDetail?.hotseat_player_1 === res.student) ||
-                                            (stage === 'fff_batch_2' && kbcQuizDetail?.hotseat_player_2 === res.student) ||
-                                            (stage === 'fff_batch_3' && kbcQuizDetail?.hotseat_player_3 === res.student) ||
-                                            kbcLiveState?.hotseat_attempt?.student === res.student;
-                                            
-                                          if (isAlreadyPromoted) {
-                                            return (
-                                              <span 
-                                                className="status-pill completed animate-pulse" 
-                                                style={{ 
-                                                  background: 'rgba(76, 175, 80, 0.15)', 
-                                                  border: '1px solid #4caf50', 
-                                                  color: '#4caf50', 
-                                                  fontSize: '0.75rem', 
-                                                  padding: '0.4rem 0.8rem', 
-                                                  borderRadius: '4px',
-                                                  fontWeight: 'bold',
-                                                  textShadow: '0 0 5px rgba(76, 175, 80, 0.3)',
-                                                  display: 'inline-block'
-                                                }}
-                                              >
-                                                🚀 Promoted
-                                              </span>
-                                            );
-                                          }
+                              ) : (() => {
+                                const incorrectResponders = fffResultsData.results.filter(r => !r.is_correct) || [];
+                                const correctResponders = fffResultsData.results.filter(r => r.is_correct) || [];
+                                const sortedCorrect = [...correctResponders].reverse(); // Slowest to fastest correct
+                                const revealOrderList = [...incorrectResponders, ...sortedCorrect];
+                                const visibleRows = revealOrderList.slice(0, revealedCount);
+
+                                return (
+                                  <>
+                                    {visibleRows.map((res, idx) => {
+                                      const isWinner = res.is_correct && res.student === correctResponders[0]?.student;
+                                      const originalRank = fffResultsData.results.findIndex(r => r.student === res.student) + 1;
+                                      
+                                      return (
+                                        <tr 
+                                          key={res.id} 
+                                          className={isWinner ? 'fff-winner-row' : ''}
+                                          style={{
+                                            background: isWinner ? 'rgba(255, 215, 0, 0.12)' : undefined,
+                                            border: isWinner ? '2.5px solid #ffd700' : undefined,
+                                            boxShadow: isWinner ? '0 0 25px rgba(255, 215, 0, 0.45)' : undefined,
+                                            transition: 'all 0.5s ease-in-out'
+                                          }}
+                                        >
+                                          <td>
+                                            {isWinner ? (
+                                              <span className="winner-crown" style={{ color: '#ffd700', fontWeight: '900' }}>👑 #1 Winner</span>
+                                            ) : (
+                                              `#${originalRank}`
+                                            )}
+                                          </td>
+                                          <td className="text-gold font-bold">{res.student_name}</td>
+                                          <td>{res.player_id}</td>
+                                          <td className="font-mono text-cyan" style={{ fontSize: '0.85rem' }}>
+                                            {(() => {
+                                              if (res.submitted_sequence) {
+                                                const choiceIds = res.submitted_sequence.split(',');
+                                                const arrangedLetters = choiceIds.map(cid => {
+                                                  const choiceIndex = fffResultsData.question.choices?.findIndex(c => String(c.id) === cid);
+                                                  return choiceIndex !== -1 ? ['A','B','C','D'][choiceIndex] : '?';
+                                                });
+                                                return arrangedLetters.join(' → ');
+                                              }
+                                              return res.selected_choice_text || 'No selection';
+                                            })()}
+                                          </td>
+                                          <td className="text-pink font-mono font-bold">{res.time_taken_seconds?.toFixed(3)}s</td>
+                                          <td>
+                                            {res.is_correct ? (
+                                              <span className="badge-correct">CORRECT</span>
+                                            ) : (
+                                              <span className="badge-incorrect">INCORRECT</span>
+                                            )}
+                                          </td>
+                                          <td>
+                                            {(() => {
+                                              const stage = kbcQuizDetail?.current_stage;
+                                              const isAlreadyPromoted = 
+                                                (stage === 'fff_batch_1' && kbcQuizDetail?.hotseat_player_1 === res.student) ||
+                                                (stage === 'fff_batch_2' && kbcQuizDetail?.hotseat_player_2 === res.student) ||
+                                                (stage === 'fff_batch_3' && kbcQuizDetail?.hotseat_player_3 === res.student) ||
+                                                kbcLiveState?.hotseat_attempt?.student === res.student;
+                                                
+                                              if (isAlreadyPromoted) {
+                                                return (
+                                                  <span 
+                                                    className="status-pill completed animate-pulse" 
+                                                    style={{ 
+                                                      background: 'rgba(76, 175, 80, 0.15)', 
+                                                      border: '1px solid #4caf50', 
+                                                      color: '#4caf50', 
+                                                      fontSize: '0.75rem', 
+                                                      padding: '0.4rem 0.8rem', 
+                                                      borderRadius: '4px',
+                                                      fontWeight: 'bold',
+                                                      textShadow: '0 0 5px rgba(76, 175, 80, 0.3)',
+                                                      display: 'inline-block'
+                                                    }}
+                                                  >
+                                                    🚀 Promoted
+                                                  </span>
+                                                );
+                                              }
+                                              
+                                              return (
+                                                <button 
+                                                  className="dash-chip-btn kbc-action-btn"
+                                                  onClick={() => handlePromoteToHotseat(res.student)}
+                                                  disabled={kbcLoading}
+                                                  style={{borderColor: '#ffd700', color: '#ffd700', padding: '0.4rem 0.8rem', fontSize: '0.75rem'}}
+                                                >
+                                                  Promote
+                                                </button>
+                                              );
+                                            })()}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                    
+                                    {/* Reveal Controls row */}
+                                    <tr>
+                                      <td colSpan="7" style={{ padding: '1.5rem', textAlign: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', alignItems: 'center' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (revealedCount < revealOrderList.length) {
+                                                const nextIdx = revealedCount;
+                                                const nextContender = revealOrderList[nextIdx];
+                                                setRevealedCount(prev => prev + 1);
+                                                if (nextContender.is_correct) {
+                                                  playAudio('/correct answer.mp3');
+                                                }
+                                              }
+                                            }}
+                                            disabled={revealedCount >= revealOrderList.length}
+                                            style={{
+                                              background: 'linear-gradient(135deg, #0052d4 0%, #4364f7 100%)',
+                                              color: 'white',
+                                              padding: '0.6rem 1.5rem',
+                                              borderRadius: '4px',
+                                              border: 'none',
+                                              fontWeight: 'bold',
+                                              cursor: revealedCount >= revealOrderList.length ? 'not-allowed' : 'pointer',
+                                              opacity: revealedCount >= revealOrderList.length ? 0.5 : 1
+                                            }}
+                                          >
+                                            👁️ Reveal Next ({revealedCount} / {revealOrderList.length})
+                                          </button>
                                           
-                                          return (
-                                            <button 
-                                              className="dash-chip-btn kbc-action-btn"
-                                              onClick={() => handlePromoteToHotseat(res.student)}
-                                              disabled={kbcLoading}
-                                              style={{borderColor: '#ffd700', color: '#ffd700', padding: '0.4rem 0.8rem', fontSize: '0.75rem'}}
-                                            >
-                                              Promote
-                                            </button>
-                                          );
-                                        })()}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setRevealedCount(revealOrderList.length);
+                                              const hasCorrect = revealOrderList.some(r => r.is_correct);
+                                              if (hasCorrect) {
+                                                playAudio('/correct answer.mp3');
+                                              }
+                                            }}
+                                            disabled={revealedCount >= revealOrderList.length}
+                                            style={{
+                                              background: 'linear-gradient(135deg, #ffd700 0%, #b8860b 100%)',
+                                              color: 'black',
+                                              padding: '0.6rem 1.5rem',
+                                              borderRadius: '4px',
+                                              border: 'none',
+                                              fontWeight: 'bold',
+                                              cursor: revealedCount >= revealOrderList.length ? 'not-allowed' : 'pointer',
+                                              opacity: revealedCount >= revealOrderList.length ? 0.5 : 1
+                                            }}
+                                          >
+                                            ✨ Reveal All
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => setRevealedCount(0)}
+                                            disabled={revealedCount === 0}
+                                            style={{
+                                              background: 'rgba(255,255,255,0.1)',
+                                              color: 'white',
+                                              padding: '0.6rem 1.5rem',
+                                              borderRadius: '4px',
+                                              border: '1px solid rgba(255,255,255,0.2)',
+                                              fontWeight: 'bold',
+                                              cursor: revealedCount === 0 ? 'not-allowed' : 'pointer',
+                                              opacity: revealedCount === 0 ? 0.5 : 1
+                                            }}
+                                          >
+                                            🔄 Reset
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
-                                  )
-                                })
-                              )}
+                                  </>
+                                );
+                              })()}
                             </tbody>
                           </table>
                         </div>
@@ -5387,7 +6216,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                             onChange={(e) => setHotseatQ6Q10Duration(Math.max(10, parseInt(e.target.value) || 0))}
                             style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', padding: '0.6rem', borderRadius: '6px', width: '100%' }}
                           />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group" style={{ textAlign: 'left' }}>
+                          <label className="admin-form-label" style={{ fontSize: '0.8rem', color: 'var(--admin-muted)' }}>Expert Timer Limit (sec)</label>
+                          <input 
+                            type="number"
+                            className="admin-form-input"
+                            value={expertDuration}
+                            onChange={(e) => setExpertDuration(Math.max(5, parseInt(e.target.value) || 0))}
+                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', padding: '0.6rem', borderRadius: '6px', width: '100%' }}
+                          />
                         </div>
+                        <div />
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', cursor: 'pointer' }}>
@@ -5448,6 +6291,154 @@ function AdminDashboardInner({ showBeautifulPopup }) {
         )}
       </section>
 
+      {/* Experts Management Modal Overlay */}
+      {showExpertsModal && (
+        <div className="admin-modal-overlay">
+          <div className="admin-modal-content" style={{ maxWidth: '800px', width: '90%' }}>
+            <button className="admin-modal-close" onClick={() => setShowExpertsModal(false)} type="button">&times;</button>
+            <h3 style={{ fontSize: '1.8rem', fontWeight: '900', color: '#ffd700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+              🎓 Manage Experts
+            </h3>
+            <p style={{ color: 'var(--admin-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
+              Add, edit, or remove experts for <strong style={{ color: '#fff' }}>{expertsModalQuizTitle}</strong> (Maximum 5 experts).
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '2rem' }}>
+              {/* Left Column: Experts List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', borderRight: '1px solid rgba(255,255,255,0.08)', paddingRight: '2rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: 'rgb(var(--admin-cyan-rgb))', fontWeight: 'bold' }}>
+                  Current Experts ({expertsList.length} / 5)
+                </h4>
+
+                {loadingExperts ? (
+                  <p style={{ color: 'var(--admin-muted)' }}>Loading experts...</p>
+                ) : expertsList.length === 0 ? (
+                  <p style={{ color: 'var(--admin-muted)', fontStyle: 'italic' }}>No experts provisioned for this quiz yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                    {expertsList.map((expert) => (
+                      <div 
+                        key={expert.id} 
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '1rem',
+                          background: 'rgba(255,255,255,0.02)',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          borderRadius: '8px',
+                          padding: '0.8rem 1rem'
+                        }}
+                      >
+                        <div style={{ width: '50px', height: '50px', borderRadius: '50%', overflow: 'hidden', border: '2px solid #ffd700', flexShrink: 0, background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                          {expert.photo ? (
+                            <img src={expert.photo} alt={expert.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <span style={{ fontSize: '1.5rem' }}>👤</span>
+                          )}
+                        </div>
+
+                        <div style={{ textAlign: 'left', flexGrow: 1 }}>
+                          <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '1rem' }}>{expert.name}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--admin-muted)' }}>{expert.designation || 'No Designation'}</div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button 
+                            type="button"
+                            onClick={() => setExpertForm({ id: expert.id, name: expert.name, designation: expert.designation || '', photo: null })}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#ffd700', cursor: 'pointer', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 'bold' }}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => handleDeleteExpert(expert.id)}
+                            style={{ background: 'rgba(255, 99, 71, 0.1)', border: 'none', color: '#ff5252', cursor: 'pointer', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 'bold' }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Add / Edit Form */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', textAlign: 'left' }}>
+                <h4 style={{ margin: 0, color: 'rgb(var(--admin-yellow-rgb))', fontWeight: 'bold' }}>
+                  {expertForm.id ? '✏️ Edit Expert Details' : '➕ Add New Expert'}
+                </h4>
+
+                <form onSubmit={handleSaveExpertSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="admin-form-label">Expert Full Name</label>
+                    <input 
+                      required 
+                      type="text" 
+                      className="admin-form-input" 
+                      placeholder="e.g. Dr. Vani Agarwal"
+                      value={expertForm.name} 
+                      onChange={e => setExpertForm({ ...expertForm, name: e.target.value })} 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="admin-form-label">Department / Designation</label>
+                    <input 
+                      type="text" 
+                      className="admin-form-input" 
+                      placeholder="e.g. Assistant Professor, Computer Science"
+                      value={expertForm.designation} 
+                      onChange={e => setExpertForm({ ...expertForm, designation: e.target.value })} 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="admin-form-label">Photo Upload (Optional)</label>
+                    <input 
+                      id="expert-photo-input"
+                      type="file" 
+                      accept="image/*"
+                      className="admin-form-input" 
+                      onChange={e => setExpertForm({ ...expertForm, photo: e.target.files[0] })} 
+                      style={{ padding: '0.5rem' }}
+                    />
+                  </div>
+
+                  {expertFormError && (
+                    <div style={{ color: '#ff5252', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                      ⚠️ {expertFormError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                    <button 
+                      type="submit" 
+                      className="dash-chip-btn" 
+                      disabled={submittingExpert}
+                      style={{ background: 'rgb(var(--admin-cyan-rgb))', color: '#000', border: 'none', fontWeight: 'bold', padding: '0.7rem 1.5rem', borderRadius: '6px', cursor: 'pointer', flexGrow: 1, fontSize: '0.9rem' }}
+                    >
+                      {submittingExpert ? 'SAVING...' : 'SAVE EXPERT'}
+                    </button>
+                    {expertForm.id && (
+                      <button 
+                        type="button" 
+                        className="dash-chip-btn" 
+                        onClick={() => setExpertForm({ id: null, name: '', designation: '', photo: null })}
+                        style={{ borderColor: 'rgba(255,255,255,0.3)', color: '#fff', cursor: 'pointer', padding: '0.7rem 1.2rem', borderRadius: '6px', fontSize: '0.9rem' }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Root-Level Fullscreen Modal Overlay */}
       {showModal && (
         <div className="admin-modal-overlay">
@@ -5483,149 +6474,234 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                 </p>
               </div>
 
-              {/* Standard Target Academic Sector Selection */}
+              {/* Enabled Event Rounds Selection */}
               <div style={{gridColumn: '1 / -1', background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--admin-border)', marginBottom: '0.5rem'}}>
-                <h4 style={{margin: '0 0 1rem 0', color: 'rgb(var(--admin-yellow-rgb))', fontSize: '0.95rem', fontWeight: 'bold'}}>Target Academic Sector</h4>
-                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem'}}>
-                  <div>
-                    <label className="admin-form-label">Target School *</label>
-                    <select 
-                      required={!session?.user?.is_super_admin}
-                      disabled={!session?.user?.is_super_admin && !!session?.user?.school_id}
-                      className="admin-form-input" 
-                      style={{ border: '1px solid rgba(212, 175, 55, 0.3)' }}
-                      value={formData.eligibility_school} 
-                      onChange={(e) => {
-                        const schoolId = e.target.value;
-                        let suggestedTitle = 'Kaun Banega Crorepati';
-                        if (schoolId) {
-                          const schoolObj = schools.find(s => String(s.id) === String(schoolId));
-                          if (schoolObj) {
-                            const name = (schoolObj.school_name || '').toLowerCase();
-                            const code = (schoolObj.school_code || '').toLowerCase();
-                            if (name.includes('management') || name.includes('business') || name.includes('commerce') || code.includes('som') || code.includes('sob') || name.includes('sobus')) {
-                              suggestedTitle = 'Kaun Banega Business Tycoon';
-                            } else if (name.includes('pharmacy') || name.includes('medical') || name.includes('health') || name.includes('nursing') || code.includes('sop') || code.includes('somed') || name.includes('sophar')) {
-                              suggestedTitle = 'Kaun Banega Pharmacy Expert';
-                            } else if (name.includes('law') || name.includes('legal') || code.includes('sol')) {
-                              suggestedTitle = 'Kaun Banega Legal Eagle';
-                            }
-                          }
-                        }
-                        
-                        setFormData({
-                          ...formData,
-                          eligibility_school: schoolId,
-                          eligibility_programs: [],
-                          eligibility_branches: [],
-                          intro_title: (!formData.intro_title || formData.intro_title === 'Kaun Banega Crorepati') ? suggestedTitle : formData.intro_title
-                        });
-                      }}
-                    >
-                      <option value="">{session?.user?.is_super_admin ? '-- All Schools --' : '-- Select Target School --'}</option>
-                      {schools.map(school => <option key={school.id} value={school.id}>{school.school_name} ({school.school_code})</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="admin-form-label">Target Program *</label>
-                    <select 
-                      required
-                      className="admin-form-input" 
-                      style={{ border: '1px solid rgba(212, 175, 55, 0.3)' }}
-                      value={formData.eligibility_programs?.[0] || ''} 
-                      onChange={e => setFormData({...formData, eligibility_programs: [e.target.value], eligibility_branches: []})} 
-                      disabled={!formData.eligibility_school}
-                    >
-                      <option value="">-- Select Target Program --</option>
-                      {programs.map(program => <option key={program.id} value={program.id}>{program.program_name} ({program.program_code})</option>)}
-                    </select>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
-                    <label className="admin-form-label">Target Branch(es) *</label>
-                    {!formData.eligibility_programs?.[0] ? (
-                      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', fontStyle: 'italic', margin: '0.5rem 0 0 0' }}>
-                        Please select a Target Program first to view available branches.
-                      </p>
-                    ) : (
-                      <div 
-                        style={{ 
-                          display: 'grid', 
-                          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', 
-                          gap: '0.8rem', 
-                          marginTop: '0.5rem', 
-                          maxHeight: '160px', 
-                          overflowY: 'auto', 
-                          background: 'rgba(0,0,0,0.15)', 
-                          border: '1px solid rgba(212, 175, 55, 0.25)', 
-                          borderRadius: '8px', 
-                          padding: '0.8rem' 
-                        }}
-                      >
-                        {branches.map(branch => {
-                          const isSelected = formData.eligibility_branches?.includes(branch.id) || formData.eligibility_branches?.includes(String(branch.id));
-                          
-                          const handleToggleBranch = () => {
-                            let currentList = [...(formData.eligibility_branches || [])];
-                            const bId = String(branch.id);
-                            const bIdNum = branch.id;
-                            
-                            const indexStr = currentList.indexOf(bId);
-                            const indexNum = currentList.indexOf(bIdNum);
-                            
-                            if (indexStr > -1) {
-                              currentList.splice(indexStr, 1);
-                            } else if (indexNum > -1) {
-                              currentList.splice(indexNum, 1);
-                            } else {
-                              currentList.push(bIdNum);
-                            }
-                            
-                            setFormData({
-                              ...formData,
-                              eligibility_branches: currentList
-                            });
-                          };
-
-                          return (
-                            <label 
-                              key={branch.id} 
-                              style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.6rem', 
-                                background: isSelected ? 'rgba(212, 175, 55, 0.08)' : 'rgba(255,255,255,0.02)', 
-                                border: isSelected ? '1px solid var(--admin-yellow)' : '1px solid rgba(255,255,255,0.06)', 
-                                padding: '0.5rem 0.8rem', 
-                                borderRadius: '6px', 
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                userSelect: 'none'
-                              }}
-                            >
-                              <input 
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={handleToggleBranch}
-                                style={{ 
-                                  accentColor: 'var(--admin-yellow)',
-                                  width: '16px',
-                                  height: '16px',
-                                  cursor: 'pointer'
-                                }}
-                              />
-                              <span style={{ fontSize: '0.88rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.7)', fontWeight: isSelected ? 'bold' : 'normal' }}>
-                                {branch.branch_name} ({branch.branch_code})
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                <h4 style={{margin: '0 0 0.5rem 0', color: 'rgb(var(--admin-yellow-rgb))', fontSize: '0.95rem', fontWeight: 'bold'}}>Enabled Event Rounds</h4>
+                <p style={{ margin: '0 0 1rem 0', fontSize: '0.75rem', color: 'var(--admin-muted)' }}>
+                  Configure which rounds are active for this quiz. Disabled rounds will be automatically skipped during live event execution.
+                </p>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem'}}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.has_prelim_round} 
+                      onChange={e => setFormData({...formData, has_prelim_round: e.target.checked})} 
+                      style={{width: '16px', height: '16px', accentColor: '#ffb300'}} 
+                    />
+                    📝 Preliminary MCQ Quiz
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.has_buzzer_round} 
+                      onChange={e => setFormData({...formData, has_buzzer_round: e.target.checked})} 
+                      style={{width: '16px', height: '16px', accentColor: '#ffb300'}} 
+                    />
+                    🚨 Buzzer Round
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.has_fff_round} 
+                      onChange={e => setFormData({...formData, has_fff_round: e.target.checked})} 
+                      style={{width: '16px', height: '16px', accentColor: '#ffb300'}} 
+                    />
+                    ⚡ Fastest Finger First (FFF)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.has_hotseat_round} 
+                      onChange={e => setFormData({...formData, has_hotseat_round: e.target.checked})} 
+                      style={{width: '16px', height: '16px', accentColor: '#ffb300'}} 
+                    />
+                    🎙️ Hotseat (Main Stage)
+                  </label>
                 </div>
               </div>
+
+              {/* Standard Target Academic Sector Selection */}
+              <div style={{gridColumn: '1 / -1', background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--admin-border)', marginBottom: '0.5rem'}}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h4 style={{margin: 0, color: 'rgb(var(--admin-yellow-rgb))', fontSize: '0.95rem', fontWeight: 'bold'}}>Target Academic Sector</h4>
+                  {session?.user?.is_super_admin && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: '#ffb300', fontWeight: 'bold' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={formData.is_global} 
+                        onChange={e => setFormData({
+                          ...formData, 
+                          is_global: e.target.checked,
+                          eligibility_school: '',
+                          eligibility_programs: [],
+                          eligibility_branches: []
+                        })} 
+                        style={{ width: '15px', height: '15px', accentColor: '#ffb300' }} 
+                      />
+                      🌐 Global Event (Open to All)
+                    </label>
+                  )}
+                </div>
+
+                {formData.is_global ? (
+                  <div style={{
+                    background: 'rgba(76, 175, 80, 0.08)',
+                    border: '1px solid rgba(76, 175, 80, 0.3)',
+                    borderRadius: '6px',
+                    padding: '1rem',
+                    color: '#81c784',
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    textAlign: 'left'
+                  }}>
+                    <span style={{ fontSize: '1.25rem' }}>🌐</span>
+                    <div>
+                      <strong>Global Event Active:</strong> This quiz is configured as a global event and will be open to all registered students across all schools, programs, and branches.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem'}}>
+                    <div>
+                      <label className="admin-form-label">Target School *</label>
+                      <select 
+                        required={!session?.user?.is_super_admin}
+                        disabled={!session?.user?.is_super_admin && !!session?.user?.school_id}
+                        className="admin-form-input" 
+                        style={{ border: '1px solid rgba(212, 175, 55, 0.3)' }}
+                        value={formData.eligibility_school} 
+                        onChange={(e) => {
+                          const schoolId = e.target.value;
+                          let suggestedTitle = 'Kaun Banega Crorepati';
+                          if (schoolId) {
+                            const schoolObj = schools.find(s => String(s.id) === String(schoolId));
+                            if (schoolObj) {
+                              const name = (schoolObj.school_name || '').toLowerCase();
+                              const code = (schoolObj.school_code || '').toLowerCase();
+                              if (name.includes('management') || name.includes('business') || name.includes('commerce') || code.includes('som') || code.includes('sob') || name.includes('sobus')) {
+                                suggestedTitle = 'Kaun Banega Business Tycoon';
+                              } else if (name.includes('pharmacy') || name.includes('medical') || name.includes('health') || name.includes('nursing') || code.includes('sop') || code.includes('somed') || name.includes('sophar')) {
+                                suggestedTitle = 'Kaun Banega Pharmacy Expert';
+                              } else if (name.includes('law') || name.includes('legal') || code.includes('sol')) {
+                                suggestedTitle = 'Kaun Banega Legal Eagle';
+                              }
+                            }
+                          }
+                          
+                          setFormData({
+                            ...formData,
+                            eligibility_school: schoolId,
+                            eligibility_programs: [],
+                            eligibility_branches: [],
+                            intro_title: (!formData.intro_title || formData.intro_title === 'Kaun Banega Crorepati') ? suggestedTitle : formData.intro_title
+                          });
+                        }}
+                      >
+                        <option value="">{session?.user?.is_super_admin ? '-- All Schools --' : '-- Select Target School --'}</option>
+                        {schools.map(school => <option key={school.id} value={school.id}>{school.school_name} ({school.school_code})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="admin-form-label">Target Program *</label>
+                      <select 
+                        required={!formData.is_global}
+                        className="admin-form-input" 
+                        style={{ border: '1px solid rgba(212, 175, 55, 0.3)' }}
+                        value={formData.eligibility_programs?.[0] || ''} 
+                        onChange={e => setFormData({...formData, eligibility_programs: [e.target.value], eligibility_branches: []})} 
+                        disabled={!formData.eligibility_school}
+                      >
+                        <option value="">-- Select Target Program --</option>
+                        {programs.map(program => <option key={program.id} value={program.id}>{program.program_name} ({program.program_code})</option>)}
+                      </select>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
+                      <label className="admin-form-label">Target Branch(es) *</label>
+                      {!formData.eligibility_programs?.[0] ? (
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', fontStyle: 'italic', margin: '0.5rem 0 0 0' }}>
+                          Please select a Target Program first to view available branches.
+                        </p>
+                      ) : (
+                        <div 
+                          style={{ 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', 
+                            gap: '0.8rem', 
+                            maxHeight: '200px', 
+                            overflowY: 'auto', 
+                            border: '1px solid rgba(212, 175, 55, 0.25)', 
+                            borderRadius: '6px', 
+                            padding: '0.8rem', 
+                            background: 'rgba(0,0,0,0.1)' 
+                          }}
+                        >
+                          {branches.map((branch) => {
+                            const isSelected = formData.eligibility_branches?.includes(branch.id) || formData.eligibility_branches?.includes(String(branch.id));
+                            
+                            const handleToggleBranch = () => {
+                              const currentList = [...(formData.eligibility_branches || [])];
+                              const bId = String(branch.id);
+                              const bIdNum = branch.id;
+                              
+                              const indexStr = currentList.indexOf(bId);
+                              const indexNum = currentList.indexOf(bIdNum);
+                              
+                              if (indexStr > -1) {
+                                currentList.splice(indexStr, 1);
+                              } else if (indexNum > -1) {
+                                currentList.splice(indexNum, 1);
+                              } else {
+                                currentList.push(bIdNum);
+                              }
+                              
+                              setFormData({
+                                ...formData,
+                                eligibility_branches: currentList
+                              });
+                            };
+
+                            return (
+                              <label 
+                                key={branch.id} 
+                                style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '0.6rem', 
+                                  background: isSelected ? 'rgba(212, 175, 55, 0.08)' : 'rgba(255,255,255,0.02)', 
+                                  border: isSelected ? '1px solid var(--admin-yellow)' : '1px solid rgba(255,255,255,0.06)', 
+                                  padding: '0.5rem 0.8rem', 
+                                  borderRadius: '6px', 
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s',
+                                  userSelect: 'none'
+                                }}
+                              >
+                                <input 
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={handleToggleBranch}
+                                  style={{ 
+                                    accentColor: 'var(--admin-yellow)',
+                                    width: '16px',
+                                    height: '16px',
+                                    cursor: 'pointer'
+                                  }}
+                                />
+                                <span style={{ fontSize: '0.88rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.7)', fontWeight: isSelected ? 'bold' : 'normal' }}>
+                                  {branch.branch_name} ({branch.branch_code})
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <div style={{gridColumn: '1 / -1'}}>
-                <label className="admin-form-label">Description</label>
+                <label className="admin-form-label">Description <span style={{fontWeight: 400, opacity: 0.6, fontSize: '0.85em'}}>(Optional)</span></label>
                 <textarea className="admin-form-input admin-form-textarea" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
               </div>
               <div style={{gridColumn: '1 / -1'}}>
@@ -5666,20 +6742,21 @@ function AdminDashboardInner({ showBeautifulPopup }) {
               </div>
 
               <div style={{gridColumn: '1 / -1'}}>
-                <label className="admin-form-label">Event Status</label>
+                <label className="admin-form-label"
+                  title="Auto: status is derived from registration dates. Set Live/Completed/Cancelled to manually override.">
+                  Event Status Override
+                  <span style={{fontWeight: 400, opacity: 0.6, fontSize: '0.82em', marginLeft: '0.5rem'}}>(Auto = date-driven)</span>
+                </label>
                 <select 
                   className="admin-form-input" 
-                  value={formData.status || 'draft'} 
+                  value={formData.status || 'auto'} 
                   onChange={e => setFormData({...formData, status: e.target.value})}
                   style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--admin-border)', color: '#fff' }}
                 >
-                  <option value="draft">Draft</option>
-                  <option value="upcoming">Upcoming</option>
-                  <option value="registration_open">Registration Open</option>
-                  <option value="registration_closed">Registration Closed</option>
-                  <option value="live">Live</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
+                  <option value="auto">🔄 Auto (Date-driven)</option>
+                  <option value="live">🔴 Live</option>
+                  <option value="completed">✅ Completed</option>
+                  <option value="cancelled">❌ Cancelled</option>
                 </select>
               </div>
 
@@ -5688,10 +6765,6 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                 <label className="admin-checkbox-label">
                   <input type="checkbox" checked={formData.visible_to_students} onChange={e => setFormData({...formData, visible_to_students: e.target.checked})} style={{width: '18px', height: '18px'}} />
                   Visible to Students
-                </label>
-                <label className="admin-checkbox-label">
-                  <input type="checkbox" checked={formData.is_registration_open} onChange={e => setFormData({...formData, is_registration_open: e.target.checked})} style={{width: '18px', height: '18px'}} />
-                  Registration Open
                 </label>
               </div>
               
@@ -5852,14 +6925,26 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     value={newQuestionData.question_type} 
                     onChange={e => setNewQuestionData({ ...newQuestionData, question_type: e.target.value })}
                   >
-                    <option value="regular">Regular (Preliminary)</option>
-                    <option value="fff_1">Fastest Finger First (Batch 1)</option>
-                    <option value="fff_2">Fastest Finger First (Batch 2)</option>
-                    <option value="fff_3">Fastest Finger First (Batch 3)</option>
-                    <option value="hotseat_1">Hotseat (Batch 1)</option>
-                    <option value="hotseat_2">Hotseat (Batch 2)</option>
-                    <option value="hotseat_3">Hotseat (Batch 3)</option>
-                    <option value="buzzer">Buzzer Round Question</option>
+                    {(!selectedManageQuiz || selectedManageQuiz.has_prelim_round !== false) && (
+                      <option value="regular">Regular (Preliminary)</option>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_fff_round !== false) && (
+                      <>
+                        <option value="fff_1">Fastest Finger First (Batch 1)</option>
+                        <option value="fff_2">Fastest Finger First (Batch 2)</option>
+                        <option value="fff_3">Fastest Finger First (Batch 3)</option>
+                      </>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_hotseat_round !== false) && (
+                      <>
+                        <option value="hotseat_1">Hotseat (Batch 1)</option>
+                        <option value="hotseat_2">Hotseat (Batch 2)</option>
+                        <option value="hotseat_3">Hotseat (Batch 3)</option>
+                      </>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_buzzer_round !== false) && (
+                      <option value="buzzer">Buzzer Round Question</option>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -6236,14 +7321,26 @@ function AdminDashboardInner({ showBeautifulPopup }) {
                     value={newQuestionData.question_type} 
                     onChange={e => setNewQuestionData({ ...newQuestionData, question_type: e.target.value })}
                   >
-                    <option value="regular">Regular (Preliminary)</option>
-                    <option value="fff_1">Fastest Finger First (Batch 1)</option>
-                    <option value="fff_2">Fastest Finger First (Batch 2)</option>
-                    <option value="fff_3">Fastest Finger First (Batch 3)</option>
-                    <option value="hotseat_1">Hotseat (Batch 1)</option>
-                    <option value="hotseat_2">Hotseat (Batch 2)</option>
-                    <option value="hotseat_3">Hotseat (Batch 3)</option>
-                    <option value="buzzer">Buzzer Round Question</option>
+                    {(!selectedManageQuiz || selectedManageQuiz.has_prelim_round !== false) && (
+                      <option value="regular">Regular (Preliminary)</option>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_fff_round !== false) && (
+                      <>
+                        <option value="fff_1">Fastest Finger First (Batch 1)</option>
+                        <option value="fff_2">Fastest Finger First (Batch 2)</option>
+                        <option value="fff_3">Fastest Finger First (Batch 3)</option>
+                      </>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_hotseat_round !== false) && (
+                      <>
+                        <option value="hotseat_1">Hotseat (Batch 1)</option>
+                        <option value="hotseat_2">Hotseat (Batch 2)</option>
+                        <option value="hotseat_3">Hotseat (Batch 3)</option>
+                      </>
+                    )}
+                    {(!selectedManageQuiz || selectedManageQuiz.has_buzzer_round !== false) && (
+                      <option value="buzzer">Buzzer Round Question</option>
+                    )}
                   </select>
                 </div>
                 <div>

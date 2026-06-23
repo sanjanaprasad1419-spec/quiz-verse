@@ -7,10 +7,15 @@ from quizzes.models import Quiz, QuizRegistration, Question, SwitchCategory, Sys
 class QuizSerializer(serializers.ModelSerializer):
     registered_count = serializers.IntegerField(read_only=True)
     remaining_seats = serializers.SerializerMethodField()
+    is_registration_open = serializers.SerializerMethodField()
+    computed_status = serializers.SerializerMethodField()
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True, default='')
     hotseat_player_1_name = serializers.CharField(source='hotseat_player_1.full_name', read_only=True)
     hotseat_player_2_name = serializers.CharField(source='hotseat_player_2.full_name', read_only=True)
     hotseat_player_3_name = serializers.CharField(source='hotseat_player_3.full_name', read_only=True)
     host_name = serializers.CharField(source='host.full_name', read_only=True)
+    # SECURITY: event_password is hidden from students via get_event_password()
+    event_password = serializers.SerializerMethodField()
     
     total_questions_count = serializers.SerializerMethodField()
     prelim_questions_count = serializers.SerializerMethodField()
@@ -19,14 +24,16 @@ class QuizSerializer(serializers.ModelSerializer):
     hotseat_2_questions_count = serializers.SerializerMethodField()
     hotseat_3_questions_count = serializers.SerializerMethodField()
     switch_categories_count = serializers.SerializerMethodField()
+    buzzer_questions_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Quiz
         fields = [
             'id', 'title', 'description', 'event_date', 
             'registration_open_date', 'registration_close_date', 
-            'status', 'visible_to_students', 'is_registration_open', 'is_archived',
+            'status', 'computed_status', 'visible_to_students', 'is_registration_open', 'is_archived',
             'max_participants', 'registration_fee', 'banner_image', 'intro_title',
+            'has_prelim_round', 'has_buzzer_round', 'has_fff_round', 'has_hotseat_round',
             'rules_instructions', 'allowed_schools', 'allowed_programs', 
             'allowed_branches', 'allowed_years', 'registered_count', 'remaining_seats',
             'event_password', 'current_stage', 'top_30_selected', 
@@ -38,7 +45,7 @@ class QuizSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
             'total_questions_count', 'prelim_questions_count', 'fff_questions_count',
             'hotseat_1_questions_count', 'hotseat_2_questions_count', 'hotseat_3_questions_count',
-            'switch_categories_count', 'host', 'host_name'
+            'switch_categories_count', 'buzzer_questions_count', 'host', 'host_name'
         ]
         read_only_fields = ['created_at', 'updated_at', 'created_by']
         
@@ -47,6 +54,24 @@ class QuizSerializer(serializers.ModelSerializer):
             return None
         count = getattr(obj, 'registered_count', 0)
         return max(0, obj.max_participants - count)
+
+    def get_is_registration_open(self, obj):
+        return obj.is_registration_open
+
+    def get_computed_status(self, obj):
+        return obj.computed_status
+
+    def get_event_password(self, obj):
+        """Only return event_password to admins. Students see None."""
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            if request.user.role == 'admin':
+                return obj.event_password
+        return None
+
+    def validate_description(self, value):
+        """Coerce null/None to empty string so the DB non-nullable field is satisfied."""
+        return value if value is not None else ''
 
     def get_total_questions_count(self, obj):
         return obj.questions.count()
@@ -68,6 +93,9 @@ class QuizSerializer(serializers.ModelSerializer):
 
     def get_switch_categories_count(self, obj):
         return obj.switch_categories.count()
+
+    def get_buzzer_questions_count(self, obj):
+        return obj.questions.filter(question_type='buzzer').count()
 
 
 class QuizRegistrationSerializer(serializers.ModelSerializer):
@@ -94,11 +122,12 @@ class EnrolledStudentSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.full_name', read_only=True)
     student_email = serializers.CharField(source='student.email', read_only=True)
     college_id = serializers.CharField(source='student.college_id', read_only=True)
+    student_id = serializers.IntegerField(source='student.id', read_only=True)
 
     class Meta:
         model = QuizRegistration
         fields = [
-            'id', 'student_name', 'student_email', 'college_id',
+            'id', 'student_id', 'student_name', 'student_email', 'college_id',
             'payment_status', 'sequence_number', 'player_id', 'arena_password', 'registered_at'
         ]
 
@@ -130,7 +159,12 @@ class TeamSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Team
-        fields = ['id', 'name', 'quiz', 'leader', 'leader_name', 'members', 'member_names', 'created_at']
+        fields = [
+            'id', 'name', 'quiz', 'leader', 'leader_name', 'members', 'member_names',
+            'member1_name', 'member2_name', 'member3_name', 'member4_name',
+            'member1_email', 'member2_email', 'member3_email', 'member4_email',
+            'created_at'
+        ]
         read_only_fields = ['leader', 'members', 'quiz']
 
     def get_member_names(self, obj):
@@ -163,7 +197,7 @@ class HotseatAttemptSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'quiz', 'student', 'student_name', 'player_id', 'batch_number', 
             'current_question_index', 'score', 'status', 'lifeline_5050_used', 
-            'lifeline_poll_used', 'lifeline_switch_used', 'started_at', 'completed_at',
+            'lifeline_poll_used', 'lifeline_switch_used', 'lifeline_expert_used', 'started_at', 'completed_at',
             'pending_lifeline_type', 'pending_lifeline_switch_category', 
             'lifeline_request_status', 'approved_lifeline_data', 'current_question_switched',
             'timer_is_paused', 'options_visible', 'showing_question', 'show_intro', 'intro_played'
@@ -175,7 +209,7 @@ class HotseatAttemptSerializer(serializers.ModelSerializer):
         return reg.player_id if reg else ""
 
 
-from quizzes.models import SwitchCategory
+from quizzes.models import SwitchCategory, Expert
 
 class SwitchCategorySerializer(serializers.ModelSerializer):
     question_text = serializers.CharField(source='question.text', read_only=True)
@@ -183,6 +217,13 @@ class SwitchCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = SwitchCategory
         fields = ['id', 'quiz', 'name', 'image', 'question', 'question_text']
+
+
+class ExpertSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Expert
+        fields = ['id', 'quiz', 'name', 'designation', 'photo']
+
 
 
 class SystemPreferencesSerializer(serializers.ModelSerializer):
@@ -194,7 +235,9 @@ class SystemPreferencesSerializer(serializers.ModelSerializer):
             'hotseat_q1_q5_limit',
             'hotseat_q6_q10_limit',
             'auto_approve_registrations',
+            'expert_timer_limit',
         ]
+
 
 
 class BuzzerPressSerializer(serializers.ModelSerializer):
@@ -221,7 +264,9 @@ class BuzzerStateSerializer(serializers.ModelSerializer):
         ]
 
     def get_correct_choice_id(self, obj):
-        if obj.current_question:
+        # Only reveal the correct answer after the host toggles answer_visible.
+        # Before that, return None so students/spectators cannot cheat by inspecting the API.
+        if obj.answer_visible and obj.current_question:
             correct = obj.current_question.choices.filter(is_correct=True).first()
             return correct.id if correct else None
         return None

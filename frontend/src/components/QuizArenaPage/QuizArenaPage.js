@@ -18,6 +18,8 @@ import {
   acknowledgeHotseatLifeline,
   approveHotseatLifeline,
   rejectHotseatLifeline,
+  getStudentExperts,
+  selectHotseatExpert,
   hostShowOptions,
   hostPauseTimer,
   hostResumeTimer,
@@ -34,6 +36,39 @@ import { getAuthSession } from '../../api/auth';
 import KbcStageFx from '../KbcStageFx/KbcStageFx';
 import HotseatIntro from './HotseatIntro';
 import './QuizArenaPage.css';
+
+const LogoIcon = ({ size = 26, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 32 32" fill="none" style={{ display: 'block', minWidth: `${size}px`, minHeight: `${size}px` }} {...props}>
+    <defs>
+      <linearGradient id="logoGradArena" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#6366f1" />
+        <stop offset="50%" stopColor="#8b5cf6" />
+        <stop offset="100%" stopColor="#06b6d4" />
+      </linearGradient>
+      <filter id="logoGlowArena" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <path 
+      d="M16 4L28 26H4L16 4Z" 
+      stroke="url(#logoGradArena)" 
+      strokeWidth="2.5" 
+      strokeLinejoin="round" 
+      fill="rgba(99, 102, 241, 0.15)"
+      filter="url(#logoGlowArena)"
+    />
+    <path 
+      d="M16 11L23 23H9L16 11Z" 
+      fill="url(#logoGradArena)"
+      opacity="0.85"
+    />
+    <circle cx="16" cy="17" r="2" fill="#ffffff" />
+  </svg>
+);
 
 const SYMBOLS = {
   triangle: '\u25B3',
@@ -63,6 +98,84 @@ const SCORE_LADDER = [
 
 const formatPoints = (score) => {
   return `${score.toLocaleString('en-IN')}`;
+};
+
+let audioCtx = null;
+const playHeartbeatSound = (pitchMultiplier = 1.0) => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioCtx) {
+      audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    
+    const now = audioCtx.currentTime;
+    
+    // First beat: "Lub"
+    const osc1 = audioCtx.createOscillator();
+    const gain1 = audioCtx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(55 * pitchMultiplier, now); // Low frequency thud
+    osc1.frequency.exponentialRampToValueAtTime(35 * pitchMultiplier, now + 0.12);
+    
+    gain1.gain.setValueAtTime(0.5, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    
+    osc1.connect(gain1);
+    gain1.connect(audioCtx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.16);
+    
+    // Second beat: "Dub" (slightly later, slightly higher frequency)
+    const delay = 0.18;
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(65 * pitchMultiplier, now + delay);
+    osc2.frequency.exponentialRampToValueAtTime(45 * pitchMultiplier, now + delay + 0.1);
+    
+    gain2.gain.setValueAtTime(0.4, now + delay);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.12);
+    
+    osc2.connect(gain2);
+    gain2.connect(audioCtx.destination);
+    osc2.start(now + delay);
+    osc2.stop(now + delay + 0.15);
+  } catch (e) {
+    console.warn("Failed to synthesize heartbeat:", e);
+  }
+};
+
+// Preloaded cached audio elements to minimize latency for instant sound effects
+const audioCache = {
+  buzzer: new Audio('/press buzzzer.mp3'),
+  correct: new Audio('/dragon-studio-correct.mp3'),
+  incorrect: new Audio('/incorrect answer.mp3')
+};
+
+// Start preloading immediately
+Object.values(audioCache).forEach(audio => {
+  audio.preload = 'auto';
+});
+
+// Module-level tracking variables to prevent duplicate playbacks across React mounts and re-renders
+let globalLastPlayedBuzzerKey = '';
+let globalLastPlayedIncorrectKey = '';
+let globalLastPlayedCorrectKey = '';
+
+const playCachedAudio = (key) => {
+  const audio = audioCache[key];
+  if (audio) {
+    try {
+      audio.currentTime = 0;
+      audio.play().catch(e => console.warn(`Cached audio play blocked for ${key}:`, e));
+    } catch (e) {
+      console.warn(`Cached audio play failed for ${key}:`, e);
+    }
+  }
 };
 
 function QuizArenaInner({ showBeautifulPopup }) {
@@ -104,6 +217,10 @@ function QuizArenaInner({ showBeautifulPopup }) {
   const [buzzerSuccess, setBuzzerSuccess] = useState('');
   const [isBuzzingLocal, setIsBuzzingLocal] = useState(false);
 
+  const [availableExperts, setAvailableExperts] = useState([]);
+  const [loadingExperts, setLoadingExperts] = useState(false);
+  const [expertTimeLeft, setExpertTimeLeft] = useState(0);
+
   const liveStateRef = useRef(liveState);
   useEffect(() => {
     liveStateRef.current = liveState;
@@ -111,33 +228,98 @@ function QuizArenaInner({ showBeautifulPopup }) {
 
   const prevActiveBuzzerIdRef = useRef(null);
   const prevIncorrectBuzzersCountRef = useRef(null);
+  const currentAudioRef = useRef(null);
+  // Pre-loaded intro audio ref — unlocked on first user gesture so autoplay works
+  const introAudioPreloadRef = useRef(null);
+  const introAudioUnlockedRef = useRef(false);
 
   const playAudio = (src) => {
     try {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+        currentAudioRef.current = null;
+      }
       const audio = new Audio(src);
+      currentAudioRef.current = audio;
       audio.play().catch(e => console.warn("Audio play blocked or failed:", e));
     } catch (e) {
       console.warn("Audio playback not supported:", e);
     }
   };
 
+  // Preload the intro audio and unlock it on first user gesture
+  useEffect(() => {
+    const introAudio = new Audio('/kaunbanegacrorepati.mp3');
+    introAudio.preload = 'auto';
+    introAudio.volume = 0;
+    introAudioPreloadRef.current = introAudio;
+
+    const unlock = () => {
+      if (introAudioUnlockedRef.current) return;
+      introAudio.play().then(() => {
+        introAudio.pause();
+        introAudio.currentTime = 0;
+        introAudio.volume = 1;
+        introAudioUnlockedRef.current = true;
+      }).catch(() => {});
+      document.removeEventListener('click', unlock, true);
+      document.removeEventListener('touchstart', unlock, true);
+      document.removeEventListener('keydown', unlock, true);
+    };
+
+    document.addEventListener('click', unlock, true);
+    document.addEventListener('touchstart', unlock, true);
+    document.addEventListener('keydown', unlock, true);
+
+    return () => {
+      document.removeEventListener('click', unlock, true);
+      document.removeEventListener('touchstart', unlock, true);
+      document.removeEventListener('keydown', unlock, true);
+      if (introAudioPreloadRef.current) {
+        introAudioPreloadRef.current.pause();
+        introAudioPreloadRef.current.src = '';
+        introAudioPreloadRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+        currentAudioRef.current = null;
+      }
+    };
+  }, []);
+
+
   useEffect(() => {
     const activeBuzzerId = liveState?.buzzer_state?.active_buzzer_id;
-    if (activeBuzzerId && activeBuzzerId !== prevActiveBuzzerIdRef.current) {
-      playAudio('/press buzzzer.mp3');
+    const activeQuestionId = liveState?.buzzer_state?.current_question?.id;
+    if (activeBuzzerId && activeQuestionId) {
+      const key = `${activeQuestionId}_${activeBuzzerId}`;
+      if (key !== globalLastPlayedBuzzerKey) {
+        playCachedAudio('buzzer');
+        globalLastPlayedBuzzerKey = key;
+      }
     }
     prevActiveBuzzerIdRef.current = activeBuzzerId;
-  }, [liveState?.buzzer_state?.active_buzzer_id]);
+  }, [liveState?.buzzer_state?.active_buzzer_id, liveState?.buzzer_state?.current_question?.id]);
 
   useEffect(() => {
     const incorrectList = liveState?.buzzer_state?.incorrect_buzzers || [];
-    if (prevIncorrectBuzzersCountRef.current !== null) {
-      if (incorrectList.length > prevIncorrectBuzzersCountRef.current) {
-        playAudio('/incorrect answer.mp3');
+    const activeQuestionId = liveState?.buzzer_state?.current_question?.id;
+    if (incorrectList.length > 0 && activeQuestionId) {
+      const key = `${activeQuestionId}_${incorrectList.length}`;
+      if (key !== globalLastPlayedIncorrectKey) {
+        playCachedAudio('incorrect');
+        globalLastPlayedIncorrectKey = key;
       }
     }
     prevIncorrectBuzzersCountRef.current = incorrectList.length;
-  }, [liveState?.buzzer_state?.incorrect_buzzers]);
+  }, [liveState?.buzzer_state?.incorrect_buzzers, liveState?.buzzer_state?.current_question?.id]);
 
 
 
@@ -275,6 +457,20 @@ function QuizArenaInner({ showBeautifulPopup }) {
   const lastFetchedSwitchedRef = useRef(null);
   const lastFetchedShowingRef = useRef(null);
 
+  // Custom KBC experience hooks
+  const [isSwitchedFlipping, setIsSwitchedFlipping] = useState(false);
+  const prevHotseatIndexRef = useRef(null);
+  const prevHotseatStatusRef = useRef(null);
+  const prevAnswerVisibleRef = useRef(false);
+  const prevSwitchedRef = useRef(false);
+  const hotseatTimeLeftRef = useRef(null);
+  const handleHotseatTimeoutRef = useRef(null);
+  const hotseatClockAudioRef = useRef(null);
+
+  useEffect(() => {
+    hotseatTimeLeftRef.current = hotseatTimeLeft;
+  }, [hotseatTimeLeft]);
+
   const handleHotseatTimeout = async () => {
     if (submittingHotseat) return;
     try {
@@ -290,6 +486,10 @@ function QuizArenaInner({ showBeautifulPopup }) {
       setSubmittingHotseat(false);
     }
   };
+
+  useEffect(() => {
+    handleHotseatTimeoutRef.current = handleHotseatTimeout;
+  }, [handleHotseatTimeout]);
 
   // Polling intervals reference
   const pollingRef = useRef(null);
@@ -434,6 +634,55 @@ function QuizArenaInner({ showBeautifulPopup }) {
     return () => clearInterval(timer);
   }, [liveState?.hotseat_attempt?.approved_lifeline_data?.poll_start_time, liveState?.hotseat_attempt?.pending_lifeline_type, liveState?.hotseat_attempt?.lifeline_request_status]);
 
+  // Synchronized expert consultation countdown timer
+  useEffect(() => {
+    const approvedData = liveState?.hotseat_attempt?.approved_lifeline_data || {};
+    const step = approvedData?.step;
+    const timerStartedAtStr = approvedData?.timer_started_at;
+    const timerDuration = approvedData?.timer_duration || 30;
+
+    if (
+      liveState?.hotseat_attempt?.pending_lifeline_type !== 'expert' ||
+      liveState?.hotseat_attempt?.lifeline_request_status !== 'approved' ||
+      step !== 'timer' ||
+      !timerStartedAtStr
+    ) {
+      setExpertTimeLeft(0);
+      return;
+    }
+
+    const updateTimer = () => {
+      const startTime = new Date(timerStartedAtStr).getTime();
+      const now = Date.now();
+      const elapsed = (now - startTime) / 1000;
+      const remaining = Math.max(0, Math.ceil(timerDuration - elapsed));
+      setExpertTimeLeft(remaining);
+      return remaining;
+    };
+
+    const remaining = updateTimer();
+    if (remaining <= 0) return;
+
+    const timer = setInterval(() => {
+      const rem = updateTimer();
+      if (rem <= 0) {
+        clearInterval(timer);
+        // Automatically acknowledge hotseat lifeline if we are the hotseat player
+        if (liveStateRef.current?.student_role === 'hotseat_player') {
+          acknowledgeHotseatLifeline(id, session?.token).catch(console.error);
+        }
+      }
+    }, 200);
+
+    return () => clearInterval(timer);
+  }, [
+    liveState?.hotseat_attempt?.approved_lifeline_data?.step,
+    liveState?.hotseat_attempt?.approved_lifeline_data?.timer_started_at,
+    liveState?.hotseat_attempt?.approved_lifeline_data?.timer_duration,
+    liveState?.hotseat_attempt?.pending_lifeline_type,
+    liveState?.hotseat_attempt?.lifeline_request_status
+  ]);
+
 
   // Sync state transitions & FFF timers
   useEffect(() => {
@@ -505,57 +754,155 @@ function QuizArenaInner({ showBeautifulPopup }) {
     }
   }, [liveState, prelimQuestion, prelimInitialized, loading, userSelectedRole, fffAnswered, entryStage, isEntered]);
 
-  // Hotseat countdown timer interval manager
+  // Play audio cues when hotseat progress changes (correct, incorrect, or jackpot success)
   useEffect(() => {
-    if (hotseatTimeLeft === null) {
-      if (hotseatTimerRef.current) {
-        clearInterval(hotseatTimerRef.current);
-        hotseatTimerRef.current = null;
-      }
+    const attempt = liveState?.hotseat_attempt;
+    if (!attempt) {
+      prevHotseatIndexRef.current = null;
+      prevHotseatStatusRef.current = null;
       return;
     }
 
-    if (hotseatTimeLeft <= 0) {
-      if (hotseatTimerRef.current) {
-        clearInterval(hotseatTimerRef.current);
-        hotseatTimerRef.current = null;
-      }
-      handleHotseatTimeout();
-      return;
+    if (prevHotseatIndexRef.current !== null && attempt.current_question_index > prevHotseatIndexRef.current) {
+      showBeautifulPopup("Correct Answer!", `Contestant got it right! Moving to Question ${attempt.current_question_index + 1}.`, "success");
     }
 
-    if (!hotseatTimerRef.current) {
-      hotseatTimerRef.current = setInterval(() => {
-        // Only tick down if:
-        // 1. Choices are revealed by Host
-        // 2. Timer is not manually paused by Host
-        // 3. No pending lifeline request in progress
-        const attempt = liveStateRef.current?.hotseat_attempt;
-        const optionsVisible = attempt?.options_visible;
-        const timerPaused = attempt?.timer_is_paused;
-        const lifelinePending = attempt?.lifeline_request_status === 'requested';
+    if (prevHotseatStatusRef.current !== null && attempt.status !== prevHotseatStatusRef.current) {
+      if (attempt.status === 'failed') {
+        showBeautifulPopup("Wrong Answer!", "Oh no! That is the incorrect answer.", "error");
+      } else if (attempt.status === 'completed') {
+        showBeautifulPopup("Jackpot Winner!", "Congratulations! The contestant has conquered the hotseat!", "success");
+      }
+    }
 
-        if (optionsVisible && !timerPaused && !lifelinePending) {
-          setHotseatTimeLeft((prev) => {
-            if (prev === null) return null;
-            if (prev <= 1) {
-              clearInterval(hotseatTimerRef.current);
-              hotseatTimerRef.current = null;
-              return 0;
-            }
-            return prev - 1;
-          });
+    prevHotseatIndexRef.current = attempt.current_question_index;
+    prevHotseatStatusRef.current = attempt.status;
+  }, [liveState?.hotseat_attempt?.current_question_index, liveState?.hotseat_attempt?.status]);
+
+  // Synchronize correct sound for buzzer round when host reveals answer
+  useEffect(() => {
+    const answerVisible = liveState?.buzzer_state?.answer_visible;
+    const activeQuestionId = liveState?.buzzer_state?.current_question?.id;
+    if (answerVisible && activeQuestionId) {
+      const key = `${activeQuestionId}_correct`;
+      if (key !== globalLastPlayedCorrectKey) {
+        playCachedAudio('correct');
+        globalLastPlayedCorrectKey = key;
+      }
+    }
+    prevAnswerVisibleRef.current = answerVisible;
+  }, [liveState?.buzzer_state?.answer_visible, liveState?.buzzer_state?.current_question?.id]);
+
+  // Watch for Switched Question lifeline activation to trigger 3D card flip animation
+  useEffect(() => {
+    const attempt = liveState?.hotseat_attempt || hostHotseatData;
+    const isSwitched = attempt?.current_question_switched;
+    if (isSwitched && !prevSwitchedRef.current) {
+      setIsSwitchedFlipping(true);
+      setTimeout(() => {
+        setIsSwitchedFlipping(false);
+      }, 800);
+    }
+    prevSwitchedRef.current = !!isSwitched;
+  }, [liveState?.hotseat_attempt?.current_question_switched, hostHotseatData?.current_question_switched]);
+
+  // Synchronize Hotseat Clock Tune Audio with Timer Ticking State
+  useEffect(() => {
+    const attempt = liveState?.hotseat_attempt;
+    const isTimerRunning = !!(
+      attempt?.options_visible &&
+      !attempt?.timer_is_paused &&
+      attempt?.lifeline_request_status !== 'requested' &&
+      hotseatTimeLeft !== null &&
+      hotseatTimeLeft > 0
+    );
+
+    if (isTimerRunning) {
+      if (!hotseatClockAudioRef.current) {
+        const audio = new Audio('/kbc-clock.mp3');
+        audio.loop = false; // managed programmatically to handle climax section
+        hotseatClockAudioRef.current = audio;
+      }
+      const audio = hotseatClockAudioRef.current;
+      
+      // Handle programmatic looping: loop first 23s if more than 10s remaining
+      audio.ontimeupdate = () => {
+        if (hotseatTimeLeftRef.current > 10) {
+          if (audio.currentTime >= 23.0) {
+            audio.currentTime = 0.0;
+          }
         }
-      }, 1000);
-    }
+      };
 
+      if (audio.paused) {
+        audio.play().catch((err) => {
+          console.warn("Failed to play hotseat clock audio:", err);
+        });
+      }
+
+      // If we enter the last 10 seconds of the timer, jump immediately to the climax (23.0s)
+      if (hotseatTimeLeft <= 10 && audio.currentTime < 23.0) {
+        audio.currentTime = 23.0;
+      }
+    } else {
+      if (hotseatClockAudioRef.current && !hotseatClockAudioRef.current.paused) {
+        hotseatClockAudioRef.current.pause();
+      }
+    }
+  }, [
+    liveState?.hotseat_attempt?.options_visible,
+    liveState?.hotseat_attempt?.timer_is_paused,
+    liveState?.hotseat_attempt?.lifeline_request_status,
+    hotseatTimeLeft
+  ]);
+
+  // Clean up clock audio on unmount
+  useEffect(() => {
     return () => {
-      if (hotseatTimeLeft <= 0 && hotseatTimerRef.current) {
-        clearInterval(hotseatTimerRef.current);
-        hotseatTimerRef.current = null;
+      if (hotseatClockAudioRef.current) {
+        hotseatClockAudioRef.current.pause();
+        hotseatClockAudioRef.current = null;
       }
     };
-  }, [hotseatTimeLeft]);
+  }, []);
+
+  // Hotseat countdown timer interval manager
+  useEffect(() => {
+    const tick = () => {
+      const remaining = hotseatTimeLeftRef.current;
+      if (remaining === null) {
+        return;
+      }
+
+      if (remaining <= 0) {
+        if (handleHotseatTimeoutRef.current) {
+          handleHotseatTimeoutRef.current();
+        }
+        return;
+      }
+
+      const attempt = liveStateRef.current?.hotseat_attempt;
+      const optionsVisible = attempt?.options_visible;
+      const timerPaused = attempt?.timer_is_paused;
+      const lifelinePending = attempt?.lifeline_request_status === 'requested';
+
+      if (optionsVisible && !timerPaused && !lifelinePending) {
+        setHotseatTimeLeft((prev) => {
+          if (prev === null) return null;
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    };
+
+    const intervalId = setInterval(tick, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
 
   // Handle staggered sequential option reveals (A, B, C, D) in KBC style
   useEffect(() => {
@@ -610,6 +957,21 @@ function QuizArenaInner({ showBeautifulPopup }) {
             setPollVotes(finalVotes);
             setShowPollModal(true);
             setPollAnimating(!approvedData.votes_closed);
+          } else if (pendingType === 'expert') {
+            const step = approvedData.step;
+            if (step === 'select_expert') {
+              if (availableExperts.length === 0 && !loadingExperts) {
+                try {
+                  setLoadingExperts(true);
+                  const data = await getStudentExperts(id, session?.token);
+                  setAvailableExperts(data || []);
+                } catch (err) {
+                  console.error("Failed to load experts:", err);
+                } finally {
+                  setLoadingExperts(false);
+                }
+              }
+            }
           } else if (pendingType === 'switch') {
             if (!showCategorySelector && switchCategoriesList.length === 0 && !loadingCategories) {
               try {
@@ -640,7 +1002,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
           if (pendingType === 'walkaway') {
             showBeautifulPopup("Walk Away Request Denied", "The host has rejected your request to walk away. You must continue playing!", "error");
           } else {
-            const typeName = pendingType === '5050' ? '50:50' : pendingType === 'poll' ? 'Audience Poll' : 'Switch Question';
+            const typeName = pendingType === '5050' ? '50:50' : pendingType === 'poll' ? 'Audience Poll' : pendingType === 'expert' ? 'Ask the Expert' : 'Switch Question';
             showBeautifulPopup("Lifeline Request Denied", `The host has rejected your request to use the ${typeName} lifeline.`, "error");
           }
           await acknowledgeHotseatLifeline(id, session?.token);
@@ -882,8 +1244,13 @@ function QuizArenaInner({ showBeautifulPopup }) {
         } else {
           setBuzzerSuccess(`Buzzer press registered! You are in the queue.`);
         }
-        if (res.active_buzzer_id && res.active_buzzer_id !== prevActiveBuzzerIdRef.current) {
-          playAudio('/press buzzzer.mp3');
+        if (res.active_buzzer_id) {
+          const activeQuestionId = liveState?.buzzer_state?.current_question?.id;
+          const key = `${activeQuestionId}_${res.active_buzzer_id}`;
+          if (key !== globalLastPlayedBuzzerKey) {
+            playCachedAudio('buzzer');
+            globalLastPlayedBuzzerKey = key;
+          }
           prevActiveBuzzerIdRef.current = res.active_buzzer_id;
         }
       }
@@ -949,6 +1316,16 @@ function QuizArenaInner({ showBeautifulPopup }) {
         setHotseatTotal(data.total_questions);
         setHotseatIndex(data.current_index);
         setHotseatScore(data.score);
+        
+        // Host timer sync
+        const qIndex = data.current_index;
+        let limit = null;
+        if (qIndex < 5) {
+          limit = liveState?.hotseat_q1_q5_limit !== undefined ? liveState.hotseat_q1_q5_limit : 60;
+        } else if (qIndex < 10) {
+          limit = liveState?.hotseat_q6_q10_limit !== undefined ? liveState.hotseat_q6_q10_limit : 120;
+        }
+        setHotseatTimeLeft(limit);
       }
     } catch (err) {
       console.log("Host Hotseat question not loaded yet or active:", err);
@@ -1205,6 +1582,41 @@ function QuizArenaInner({ showBeautifulPopup }) {
     }
   };
 
+  const handleUseExpert = async () => {
+    if (liveState?.hotseat_attempt?.lifeline_expert_used) return;
+    if (!liveState?.hotseat_attempt?.options_visible) {
+      showBeautifulPopup("Locked", "You can only request a lifeline after the choices are revealed by the host.", "warning");
+      return;
+    }
+    if (liveState?.hotseat_attempt?.current_question_index >= 14) {
+      showBeautifulPopup("Locked", "Lifelines are no longer available on the 15th question.", "warning");
+      return;
+    }
+    try {
+      await requestHotseatLifeline(id, 'expert', '', session?.token);
+      showBeautifulPopup("Lifeline Requested", "Your request for Ask the Expert has been sent to the host.", "info");
+    } catch (err) {
+      showBeautifulPopup("Request Failed", err.message || "Failed to request Ask the Expert", "error");
+    }
+  };
+
+  const handleChooseExpert = async (expertId) => {
+    try {
+      await selectHotseatExpert(id, expertId, session?.token);
+      setAvailableExperts([]);
+    } catch (err) {
+      showBeautifulPopup("Error", err.message || "Failed to select expert.", "error");
+    }
+  };
+
+  const handleCloseExpertTimer = async () => {
+    try {
+      await acknowledgeHotseatLifeline(id, session?.token);
+    } catch (err) {
+      console.error("Failed to acknowledge/close expert lifeline:", err);
+    }
+  };
+
   const handleConfirmSwitchCategory = async () => {
     if (!selectedCategoryId) {
       showBeautifulPopup("Selection Required", "Please click on a category card first.", "warning");
@@ -1247,6 +1659,19 @@ function QuizArenaInner({ showBeautifulPopup }) {
     );
   };
 
+  const renderHotseatCenteredTimer = (timeLeft) => {
+    if (timeLeft === null) return null;
+    const warning = timeLeft <= 10;
+    return (
+      <div className="hotseat-centered-timer-container">
+        <div className={`hotseat-centered-timer ${warning ? 'warning' : ''}`}>
+          <span className="timer-value">{timeLeft}</span>
+          <span className="timer-label">SECONDS</span>
+        </div>
+      </div>
+    );
+  };
+
   const renderTopbar = (title, badgeText = null, isTimer = false, timeLeftValue = 0, score = null) => {
     const timerWarning = timeLeftValue <= 10;
     const liveCount = liveState?.live_participants || 0;
@@ -1264,7 +1689,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
     return (
       <header className="arena-topbar">
         <div className="arena-brand">
-          <span>{SYMBOLS.triangle}</span> {title}
+          <span className="arena-brand-logo"><LogoIcon /></span> {title}
         </div>
         
         {badgeText && <div className="event-badge">{badgeText}</div>}
@@ -1668,6 +2093,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
     const b1 = liveState.batch_1_players || [];
     const b2 = liveState.batch_2_players || [];
     const b3 = liveState.batch_3_players || [];
+    const hasAnyPlayers = b1.length > 0 || b2.length > 0 || b3.length > 0;
     
     return (
       <main className={`arena-page kbc-broadcast ${isLight ? 'theme-light' : 'theme-dark'}`}>
@@ -1689,7 +2115,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
               <h3>BATCH 1 (Contestants 1-{b1.length})</h3>
               <p className="helper-text">Competes in FFF Batch 1</p>
               <ul>
-                {b1.length === 0 ? <li className="empty-li">Locking players...</li> : b1.map((player, idx) => {
+                {b1.length === 0 ? <li className="empty-li">{hasAnyPlayers ? 'No contestants' : 'Locking players...'}</li> : b1.map((player, idx) => {
                   const pId = player?.id;
                   const pName = player?.name || `Player ID: ${pId}`;
                   const isYou = session?.user?.id === pId;
@@ -1707,7 +2133,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
               <h3>BATCH 2 (Contestants {b1.length + 1}-{b1.length + b2.length})</h3>
               <p className="helper-text">Competes in FFF Batch 2</p>
               <ul>
-                {b2.length === 0 ? <li className="empty-li">Locking players...</li> : b2.map((player, idx) => {
+                {b2.length === 0 ? <li className="empty-li">{hasAnyPlayers ? 'No contestants' : 'Locking players...'}</li> : b2.map((player, idx) => {
                   const pId = player?.id;
                   const pName = player?.name || `Player ID: ${pId}`;
                   const isYou = session?.user?.id === pId;
@@ -1725,7 +2151,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
               <h3>BATCH 3 (Contestants {b1.length + b2.length + 1}-{b1.length + b2.length + b3.length})</h3>
               <p className="helper-text">Competes in FFF Batch 3</p>
               <ul>
-                {b3.length === 0 ? <li className="empty-li">Locking players...</li> : b3.map((player, idx) => {
+                {b3.length === 0 ? <li className="empty-li">{hasAnyPlayers ? 'No contestants' : 'Locking players...'}</li> : b3.map((player, idx) => {
                   const pId = player?.id;
                   const pName = player?.name || `Player ID: ${pId}`;
                   const isYou = session?.user?.id === pId;
@@ -1936,55 +2362,46 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   </div>
 
                   {bState.options_visible ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-                      {bState.choices?.map((choice, index) => {
-                        const letter = String.fromCharCode(65 + index);
-                        const isCorrect = choice.id === bState.correct_choice_id;
-                        const showCorrect = bState.answer_visible;
-                        
-                        return (
-                          <div 
-                            key={choice.id} 
-                            className={`kbc-option-container glass-card ${showCorrect && isCorrect ? 'correct-glow' : ''}`}
-                            style={{ 
-                              padding: '1.5rem', 
-                              borderRadius: '10px', 
-                              fontSize: '1.35rem', 
-                              color: showCorrect && isCorrect ? '#10b981' : 'white',
-                              border: showCorrect && isCorrect ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '1rem',
-                              background: showCorrect && isCorrect ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0,0,0,0.3)',
-                              transition: 'all 0.5s ease'
-                            }}
-                          >
-                            <span style={{ color: showCorrect && isCorrect ? '#10b981' : 'var(--kbc-sky)', fontWeight: 'bold' }}>{letter}:</span>
-                            <span>{choice.text}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="glass-card text-center" style={{ padding: '2rem', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: '1.2rem' }}>
-                      Options are locked by Host. Awaiting reveal...
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '2rem', marginTop: '1rem', height: '180px' }}>
-                    {bState.active_buzzer_id ? (
-                      <div className="pulse-glow-red" style={{ background: 'rgba(244,63,94,0.1)', border: '2px solid #f43f5e', borderRadius: '12px', padding: '1.5rem 3rem', display: 'flex', alignItems: 'center', gap: '3rem' }}>
-                        <div>
-                          <div style={{ fontSize: '1rem', color: '#f43f5e', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.05em' }}>BUZZED! ACTIVE TURN</div>
-                          <h3 style={{ fontSize: '1.8rem', color: 'white', margin: '0.3rem 0' }}>Answering in Progress...</h3>
-                        </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: bState.answer_visible ? '1fr' : 'repeat(2, 1fr)', 
+                        gap: '1.5rem',
+                        width: bState.answer_visible ? '60%' : '100%',
+                        maxWidth: bState.answer_visible ? '600px' : '100%'
+                      }}>
+                        {bState.choices?.filter(choice => !bState.answer_visible || choice.id === bState.correct_choice_id).map((choice, index) => {
+                          const originalIndex = bState.choices.findIndex(c => c.id === choice.id);
+                          const letter = String.fromCharCode(65 + originalIndex);
+                          const isCorrect = choice.id === bState.correct_choice_id;
+                          const showCorrect = bState.answer_visible;
+                          
+                          return (
+                            <div 
+                              key={choice.id} 
+                              className={`kbc-option-container glass-card ${showCorrect && isCorrect ? 'correct-glow' : ''}`}
+                              style={{ 
+                                padding: '1.5rem', 
+                                borderRadius: '10px', 
+                                fontSize: '1.35rem', 
+                                color: showCorrect && isCorrect ? '#10b981' : 'white',
+                                border: showCorrect && isCorrect ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '1rem',
+                                background: showCorrect && isCorrect ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0,0,0,0.3)',
+                                transition: 'all 0.5s ease',
+                                justifyContent: bState.answer_visible ? 'center' : 'flex-start'
+                              }}
+                            >
+                              <span style={{ color: showCorrect && isCorrect ? '#10b981' : 'var(--kbc-sky)', fontWeight: 'bold' }}>{letter}:</span>
+                              <span>{choice.text}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ) : (
-                      <div style={{ fontSize: '1.5rem', color: 'var(--kbc-sky)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', animation: 'pulse 1.5s infinite ease-in-out' }}>
-                        🚨 Buzzers Active! PRESS NOW!
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="glass-card text-center" style={{ padding: '4rem 2rem' }}>
@@ -2000,6 +2417,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', overflowY: 'auto', flex: 1 }}>
                 {Object.entries(mapping)
+                  .filter(([bId]) => parseInt(bId, 10) <= (bState.buzzer_count || 15))
                   .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
                   .map(([bId, details], rank) => {
                     const isTop = rank === 0;
@@ -2054,10 +2472,10 @@ function QuizArenaInner({ showBeautifulPopup }) {
               <div className="glass-card text-center glow-pink" style={{ padding: '2.5rem', borderRadius: '16px', maxWidth: '450px', width: '100%' }}>
                 <h3 className="title-text golden-glow font-bold" style={{ fontSize: '1.6rem', marginBottom: '1rem' }}>Podium Setup</h3>
                 <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.7)', marginBottom: '1.5rem' }}>
-                  Select your Podium / Buzzer number (1 to 15) to connect this screen.
+                  Select your Podium / Buzzer number (1 to {bState.buzzer_count || 15}) to connect this screen.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.6rem', marginBottom: '1.5rem' }}>
-                  {Array.from({ length: 15 }, (_, i) => i + 1).map(num => (
+                  {Array.from({ length: bState.buzzer_count || 15 }, (_, i) => i + 1).map(num => (
                     <button
                       key={num}
                       onClick={() => setBuzzerPressId(String(num))}
@@ -2500,7 +2918,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                           🛎️ LIFELINE REQUEST PENDING
                         </h3>
                         <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#fff', lineHeight: '1.4' }}>
-                          Contestant <strong style={{ color: '#ffd700' }}>{activeContestantName}</strong> wants to activate the <strong style={{ color: '#ffd700', textTransform: 'uppercase', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>{hostHotseatData.pending_lifeline_type === '5050' ? '50:50' : hostHotseatData.pending_lifeline_type === 'poll' ? 'Audience Poll' : `Switch Question (${hostHotseatData.pending_lifeline_switch_category})`}</strong> lifeline.
+                          Contestant <strong style={{ color: '#ffd700' }}>{activeContestantName}</strong> wants to activate the <strong style={{ color: '#ffd700', textTransform: 'uppercase', textShadow: '0 0 5px rgba(255,215,0,0.5)' }}>{hostHotseatData.pending_lifeline_type === '5050' ? '50:50' : hostHotseatData.pending_lifeline_type === 'poll' ? 'Audience Poll' : hostHotseatData.pending_lifeline_type === 'expert' ? 'Ask the Expert' : `Switch Question (${hostHotseatData.pending_lifeline_switch_category})`}</strong> lifeline.
                         </p>
                       </>
                     )}
@@ -2553,8 +2971,9 @@ function QuizArenaInner({ showBeautifulPopup }) {
 
                 {hostHotseatData?.active && hostHotseatData?.question ? (
                   <>
+                    {hotseatTimeLeft !== null && renderHotseatCenteredTimer(hotseatTimeLeft)}
                     <span className="question-category-tag">CATEGORY: {hostHotseatData.question.category || 'General'}</span>
-                    <article className="arena-question-card glass-card kbc-question-frame" style={{ border: '2px solid rgba(255, 215, 0, 0.25)', background: 'rgba(255, 215, 0, 0.01)' }}>
+                    <article className={`arena-question-card glass-card kbc-question-frame ${isSwitchedFlipping ? 'flipping' : ''}`} style={{ border: '2px solid rgba(255, 215, 0, 0.25)', background: 'rgba(255, 215, 0, 0.01)' }}>
                       <h2>{hostHotseatData.question.text}</h2>
                     </article>
 
@@ -2574,13 +2993,14 @@ function QuizArenaInner({ showBeautifulPopup }) {
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
-                              opacity: isChoiceEliminated ? 0.25 : 1,
-                              pointerEvents: isChoiceEliminated ? 'none' : 'auto'
+                              opacity: isChoiceEliminated ? 0.35 : 1,
+                              pointerEvents: isChoiceEliminated ? 'none' : 'auto',
+                              position: 'relative'
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                               <div className="choice-indicator">{['A','B','C','D'][i]}</div>
-                              <div className="choice-text">{isChoiceEliminated ? "" : choice.text}</div>
+                              <div className="choice-text">{choice.text}</div>
                             </div>
                             
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -2590,6 +3010,15 @@ function QuizArenaInner({ showBeautifulPopup }) {
                                 </span>
                               )}
                             </div>
+
+                            {isChoiceEliminated && (
+                              <div className="red-x-overlay">
+                                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
+                                  <line x1="10" y1="10" x2="90" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                  <line x1="90" y1="10" x2="10" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                </svg>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -2961,7 +3390,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   <>
                     <h2 className="golden-glow" style={{ margin: '0 0 1rem 0', fontWeight: '900', letterSpacing: '0.05em' }}>LIFELINE PENDING</h2>
                     <p style={{ margin: '0 0 1.5rem 0', color: '#fff', fontSize: '1.05rem', lineHeight: '1.5' }}>
-                      Your request to use the <strong style={{ color: '#ffd700', textTransform: 'uppercase' }}>{liveState.hotseat_attempt.pending_lifeline_type === '5050' ? '50:50' : liveState.hotseat_attempt.pending_lifeline_type === 'poll' ? 'Audience Poll' : 'Switch Question'}</strong> lifeline is awaiting approval from the host.
+                      Your request to use the <strong style={{ color: '#ffd700', textTransform: 'uppercase' }}>{liveState.hotseat_attempt.pending_lifeline_type === '5050' ? '50:50' : liveState.hotseat_attempt.pending_lifeline_type === 'poll' ? 'Audience Poll' : liveState.hotseat_attempt.pending_lifeline_type === 'expert' ? 'Ask the Expert' : 'Switch Question'}</strong> lifeline is awaiting approval from the host.
                     </p>
                   </>
                 )}
@@ -3065,6 +3494,36 @@ function QuizArenaInner({ showBeautifulPopup }) {
                     </svg>
                   )}
                 </button>
+
+                <button 
+                  className={`btn-lifeline ${liveState?.hotseat_attempt?.lifeline_expert_used ? 'used' : ''} ${(!liveState?.hotseat_attempt?.options_visible || liveState?.hotseat_attempt?.current_question_index >= 14) ? 'locked' : ''}`}
+                  onClick={handleUseExpert}
+                  disabled={liveState?.hotseat_attempt?.lifeline_expert_used || liveState?.hotseat_attempt?.current_question_index >= 14 || !liveState?.hotseat_attempt?.options_visible}
+                  title={liveState?.hotseat_attempt?.current_question_index >= 14 ? "Lifelines locked on Q15" : !liveState?.hotseat_attempt?.options_visible ? "Options must be revealed first" : "Use Ask the Expert"}
+                  style={{ position: 'relative' }}
+                >
+                  <div className="lifeline-ring">
+                    <svg viewBox="0 0 100 60" style={{ width: '100%', height: '100%', padding: '2px' }}>
+                      <defs>
+                        <linearGradient id="expertGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#34d399" />
+                          <stop offset="100%" stopColor="#059669" />
+                        </linearGradient>
+                      </defs>
+                      <polygon points="50,10 85,25 50,40 15,25" fill="url(#expertGrad)" stroke="#fff" strokeWidth="1" />
+                      <polygon points="30,30 30,45 50,52 70,45 70,30" fill="url(#expertGrad)" stroke="#fff" strokeWidth="1" />
+                      <line x1="85" y1="25" x2="85" y2="45" stroke="#ffd700" strokeWidth="2" />
+                      <circle cx="85" cy="45" r="3" fill="#ffd700" />
+                      <text x="50%" y="49" dominantBaseline="middle" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="900">EXPERT</text>
+                    </svg>
+                  </div>
+                  {liveState?.hotseat_attempt?.lifeline_expert_used && (
+                    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+                      <line x1="12" y1="8" x2="63" y2="42" stroke="#ef4444" strokeWidth="5" strokeLinecap="round" />
+                      <line x1="63" y1="8" x2="12" y2="42" stroke="#ef4444" strokeWidth="5" strokeLinecap="round" />
+                    </svg>
+                  )}
+                </button>
               </div>
 
               {/* Question Screen */}
@@ -3077,6 +3536,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   </div>
                 ) : (
                   <>
+                    {hotseatTimeLeft !== null && renderHotseatCenteredTimer(hotseatTimeLeft)}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
                       {liveState?.hotseat_attempt?.current_question_switched ? (
                         <span className="question-category-tag" style={{ margin: 0 }}>CATEGORY: {hotseatQuestion.category}</span>
@@ -3087,13 +3547,13 @@ function QuizArenaInner({ showBeautifulPopup }) {
                         </span>
                       )}
                     </div>
-                    <article className="arena-question-card glass-card kbc-question-frame">
+                    <article className={`arena-question-card glass-card kbc-question-frame ${isSwitchedFlipping ? 'flipping' : ''}`}>
                       <h2>{hotseatQuestion.text}</h2>
                     </article>
 
                     <div className="kbc-choices-grid">
                       {hotseatQuestion.choices.map((choice, i) => {
-                        const isEliminated = eliminatedChoiceIds.includes(choice.id);
+                        const isEliminated = eliminatedChoiceIds.includes(choice.id) || (liveState?.hotseat_attempt?.approved_lifeline_data?.eliminated_choice_ids || []).includes(choice.id);
                         const isChoiceVisible = liveState?.hotseat_attempt?.options_visible && (revealedChoicesCount > i);
                         return (
                           <button 
@@ -3102,14 +3562,23 @@ function QuizArenaInner({ showBeautifulPopup }) {
                             onClick={() => handleHotseatChoiceClick(choice.id)}
                             disabled={isEliminated || submittingHotseat || !isChoiceVisible}
                             style={{
-                              opacity: isChoiceVisible ? 1 : 0,
+                              position: 'relative',
+                              opacity: isChoiceVisible ? (isEliminated ? 0.35 : 1) : 0,
                               pointerEvents: isChoiceVisible ? 'auto' : 'none',
                               transform: isChoiceVisible ? 'translateY(0)' : 'translateY(10px)',
                               transition: 'opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease'
                             }}
                           >
                             <div className="choice-indicator">{['A','B','C','D'][i]}</div>
-                            <div className="choice-text">{isEliminated ? "" : choice.text}</div>
+                            <div className="choice-text">{choice.text}</div>
+                            {isEliminated && (
+                              <div className="red-x-overlay">
+                                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
+                                  <line x1="10" y1="10" x2="90" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                  <line x1="90" y1="10" x2="10" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                </svg>
+                              </div>
+                            )}
                           </button>
                         );
                       })}
@@ -3214,6 +3683,173 @@ function QuizArenaInner({ showBeautifulPopup }) {
                 >
                   {(pollAnimating || pollTimeLeft > 0) ? `🗳️ VOTING IN PROGRESS (${pollTimeLeft}s)` : 'CLOSE RESULTS'}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Ask the Expert Selection Modal (Contestant Only) */}
+          {liveState?.hotseat_attempt?.pending_lifeline_type === 'expert' &&
+           liveState?.hotseat_attempt?.lifeline_request_status === 'approved' &&
+           liveState?.hotseat_attempt?.approved_lifeline_data?.step === 'select_expert' &&
+           liveState?.student_role === 'hotseat_player' && (
+            <div className="modal-overlay" style={{ background: 'rgba(3, 2, 6, 0.95)', zIndex: 1000 }}>
+              <div className="modal-content glass-card glow-gold" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '750px', padding: '2.5rem' }}>
+                <span className="overview-kicker" style={{ color: '#ffd700', fontSize: '0.85rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}>🎓 ASK THE EXPERT</span>
+                <h2 className="golden-glow" style={{ margin: '0.5rem 0 1rem 0', fontSize: '2.2rem', fontWeight: '900' }}>CHOOSE YOUR EXPERT</h2>
+                <p style={{ color: '#94a3b8', marginBottom: '2rem', fontSize: '1.02rem' }}>
+                  The host has approved your lifeline! Select the expert you wish to consult.
+                </p>
+
+                {loadingExperts ? (
+                  <div style={{ padding: '3rem', textAlign: 'center' }}>
+                    <div className="loading-spinner-hourglass" style={{ fontSize: '3rem', marginBottom: '1.5rem', animation: 'spin 2s linear infinite' }}>⏳</div>
+                    <p style={{ color: '#94a3b8' }}>Loading Available Experts...</p>
+                  </div>
+                ) : availableExperts.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center' }}>
+                    <p style={{ color: '#ff5252', fontWeight: 'bold' }}>No experts are currently available for this quiz.</p>
+                    <button className="btn-submit" style={{ marginTop: '1.5rem' }} onClick={handleCloseExpertTimer}>
+                      CANCEL LIFELINE
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+                    {availableExperts.map((expert) => (
+                      <div 
+                        key={expert.id}
+                        onClick={() => handleChooseExpert(expert.id)}
+                        className="glass-card expert-select-card"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderRadius: '12px',
+                          padding: '1.5rem 1rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '1rem',
+                          transition: 'all 0.3s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-5px)';
+                          e.currentTarget.style.borderColor = '#ffd700';
+                          e.currentTarget.style.boxShadow = '0 5px 20px rgba(255, 215, 0, 0.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'none';
+                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
+                        <div style={{ width: '80px', height: '80px', borderRadius: '50%', overflow: 'hidden', border: '3px solid #ffd700', background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                          {expert.photo ? (
+                            <img src={expert.photo} alt={expert.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <span style={{ fontSize: '2.5rem' }}>👤</span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <h4 style={{ margin: '0 0 0.3rem 0', color: '#fff', fontSize: '1.1rem', fontWeight: 'bold' }}>{expert.name}</h4>
+                          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8rem', lineHeight: '1.3' }}>{expert.designation || 'Specialist'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Awaiting Expert Selection Overlay (Host/Spectators) */}
+          {liveState?.hotseat_attempt?.pending_lifeline_type === 'expert' &&
+           liveState?.hotseat_attempt?.lifeline_request_status === 'approved' &&
+           liveState?.hotseat_attempt?.approved_lifeline_data?.step === 'select_expert' &&
+           liveState?.student_role !== 'hotseat_player' && (
+            <div className="modal-overlay" style={{ background: 'rgba(3, 2, 6, 0.95)', zIndex: 1000 }}>
+              <div className="modal-content glass-card glow-gold" style={{ maxWidth: '500px', padding: '2.5rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '4rem', marginBottom: '1.5rem', animation: 'pulse 1.5s infinite' }}>🎓</div>
+                <h3 className="golden-glow" style={{ fontSize: '1.6rem', margin: '0 0 1rem 0', fontWeight: '800' }}>
+                  AWAITING EXPERT SELECTION
+                </h3>
+                <p style={{ color: '#94a3b8', fontSize: '1.05rem', lineHeight: '1.5' }}>
+                  The hotseat player is currently choosing an expert from the panel. Please stand by...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Active Expert Timer Modal (Visible to Everyone) */}
+          {liveState?.hotseat_attempt?.pending_lifeline_type === 'expert' &&
+           liveState?.hotseat_attempt?.lifeline_request_status === 'approved' &&
+           liveState?.hotseat_attempt?.approved_lifeline_data?.step === 'timer' && (
+            <div className="modal-overlay" style={{ background: 'rgba(3, 2, 6, 0.96)', zIndex: 1000 }}>
+              <div className="modal-content glass-card glow-gold" style={{ maxWidth: '600px', padding: '3rem', textAlign: 'center', position: 'relative' }}>
+                <span className="overview-kicker" style={{ color: '#ffd700', fontSize: '0.85rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <span style={{ width: '8px', height: '8px', background: '#4caf50', borderRadius: '50%', display: 'inline-block', animation: 'pulse 1s infinite' }} />
+                  LIVE EXPERT CONSULTATION
+                </span>
+
+                {/* Expert Info */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
+                  <div style={{ width: '120px', height: '120px', borderRadius: '50%', overflow: 'hidden', border: '4px solid #ffd700', boxShadow: '0 0 25px rgba(255, 215, 0, 0.3)', background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    {liveState.hotseat_attempt.approved_lifeline_data.selected_expert?.photo ? (
+                      <img src={liveState.hotseat_attempt.approved_lifeline_data.selected_expert.photo} alt={liveState.hotseat_attempt.approved_lifeline_data.selected_expert.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '3.5rem' }}>👤</span>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="golden-glow" style={{ margin: '0 0 0.3rem 0', fontSize: '2rem', fontWeight: '900' }}>
+                      {liveState.hotseat_attempt.approved_lifeline_data.selected_expert?.name}
+                    </h2>
+                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '1.1rem', fontWeight: '500' }}>
+                      {liveState.hotseat_attempt.approved_lifeline_data.selected_expert?.designation || 'Academic Specialist'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Timer Circle */}
+                <div style={{ position: 'relative', width: '150px', height: '150px', margin: '0 auto 2.5rem auto', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  <svg width="150" height="150" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+                    <circle 
+                      cx="75" 
+                      cy="75" 
+                      r="65" 
+                      stroke="rgba(255,255,255,0.05)" 
+                      strokeWidth="10" 
+                      fill="transparent" 
+                    />
+                    <circle 
+                      cx="75" 
+                      cy="75" 
+                      r="65" 
+                      stroke="#ffd700" 
+                      strokeWidth="10" 
+                      fill="transparent" 
+                      strokeDasharray={`${2 * Math.PI * 65}`}
+                      strokeDashoffset={`${2 * Math.PI * 65 * (1 - expertTimeLeft / (liveState.hotseat_attempt.approved_lifeline_data.timer_duration || 30))}`}
+                      style={{ transition: 'stroke-dashoffset 0.25s linear' }}
+                    />
+                  </svg>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                    <span style={{ fontSize: '3.2rem', fontWeight: '900', color: expertTimeLeft <= 10 ? '#ff5252' : '#fff', transition: 'color 0.3s ease' }}>
+                      {expertTimeLeft}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: 'bold', letterSpacing: '0.05em' }}>SECONDS</span>
+                  </div>
+                </div>
+
+                {/* Done/Skip Button (Host & Player Only) */}
+                {(liveState.student_role === 'hotseat_player' || userSelectedRole === 'host') && (
+                  <button 
+                    className="btn-submit" 
+                    onClick={handleCloseExpertTimer}
+                    style={{ background: 'linear-gradient(135deg, #ffd700, #ff8c00)', color: '#000', fontWeight: '900', border: 'none', padding: '0.8rem 2rem', borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', letterSpacing: '0.05em' }}
+                  >
+                    {liveState.student_role === 'hotseat_player' ? 'DONE, RESUME TIMER' : 'SKIP & RESUME TIMER'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -3408,6 +4044,33 @@ function QuizArenaInner({ showBeautifulPopup }) {
                   </svg>
                 )}
               </div>
+
+              <div 
+                className={`btn-lifeline disabled ${liveState?.hotseat_attempt?.lifeline_expert_used ? 'used' : ''}`}
+                style={{ position: 'relative' }}
+              >
+                <div className="lifeline-ring">
+                  <svg viewBox="0 0 100 60" style={{ width: '100%', height: '100%', padding: '2px' }}>
+                    <defs>
+                      <linearGradient id="expertGradSpec" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#34d399" />
+                        <stop offset="100%" stopColor="#059669" />
+                      </linearGradient>
+                    </defs>
+                    <polygon points="50,10 85,25 50,40 15,25" fill="url(#expertGradSpec)" stroke="#fff" strokeWidth="1" />
+                    <polygon points="30,30 30,45 50,52 70,45 70,30" fill="url(#expertGradSpec)" stroke="#fff" strokeWidth="1" />
+                    <line x1="85" y1="25" x2="85" y2="45" stroke="#ffd700" strokeWidth="2" />
+                    <circle cx="85" cy="45" r="3" fill="#ffd700" />
+                    <text x="50%" y="49" dominantBaseline="middle" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="900">EXPERT</text>
+                  </svg>
+                </div>
+                {liveState?.hotseat_attempt?.lifeline_expert_used && (
+                  <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+                    <line x1="12" y1="8" x2="63" y2="42" stroke="#ef4444" strokeWidth="5" strokeLinecap="round" />
+                    <line x1="63" y1="8" x2="12" y2="42" stroke="#ef4444" strokeWidth="5" strokeLinecap="round" />
+                  </svg>
+                )}
+              </div>
             </div>
 
             {/* Display Screen */}
@@ -3425,6 +4088,7 @@ function QuizArenaInner({ showBeautifulPopup }) {
                 </div>
               ) : hotseatQuestion ? (
                 <>
+                  {hotseatTimeLeft !== null && renderHotseatCenteredTimer(hotseatTimeLeft)}
                   {/* Real-time Spectator Audience Poll Alert Banner */}
                   {liveState?.hotseat_attempt?.pending_lifeline_type === 'poll' && 
                    liveState?.hotseat_attempt?.lifeline_request_status === 'approved' && 
@@ -3483,12 +4147,14 @@ function QuizArenaInner({ showBeautifulPopup }) {
                       {liveState?.hotseat_attempt?.current_question_switched ? (
                         <span className="question-category-tag">CATEGORY: {hotseatQuestion.category}</span>
                       ) : null}
-                      <article className="arena-question-card glass-card kbc-question-frame">
+                      <article className={`arena-question-card glass-card kbc-question-frame ${isSwitchedFlipping ? 'flipping' : ''}`}>
                         <h2>{hotseatQuestion.text}</h2>
                       </article>
 
                       <div className="kbc-choices-grid">
                         {hotseatQuestion.choices.map((choice, i) => {
+                          const spectatorEliminatedIds = liveState?.hotseat_attempt?.approved_lifeline_data?.eliminated_choice_ids || [];
+                          const isChoiceEliminated = spectatorEliminatedIds.includes(choice.id);
                           const isPollActive = liveState?.hotseat_attempt?.pending_lifeline_type === 'poll' && 
                                              liveState?.hotseat_attempt?.lifeline_request_status === 'approved' && 
                                              pollTimeLeft > 0;
@@ -3500,19 +4166,29 @@ function QuizArenaInner({ showBeautifulPopup }) {
                             return (
                               <button 
                                 key={choice.id}
-                                className={`arena-choice-btn kbc-choice ${isVotedChoice ? 'selected' : ''}`}
+                                className={`arena-choice-btn kbc-choice ${isVotedChoice ? 'selected' : ''} ${isChoiceEliminated ? 'eliminated' : ''}`}
                                 onClick={() => handleSpectatorVoteClick(choice.id)}
-                                disabled={hasVoted || submittingSpectatorVote || pollTimeLeft <= 0}
+                                disabled={isChoiceEliminated || hasVoted || submittingSpectatorVote || pollTimeLeft <= 0}
                                 style={{
-                                  cursor: (hasVoted || pollTimeLeft <= 0) ? 'not-allowed' : 'pointer',
-                                  pointerEvents: (hasVoted || pollTimeLeft <= 0) ? 'none' : 'auto',
+                                  position: 'relative',
+                                  cursor: (isChoiceEliminated || hasVoted || pollTimeLeft <= 0) ? 'not-allowed' : 'pointer',
+                                  pointerEvents: (isChoiceEliminated || hasVoted || pollTimeLeft <= 0) ? 'none' : 'auto',
                                   border: isVotedChoice ? '2px solid #00efff' : undefined,
                                   boxShadow: isVotedChoice ? '0 0 15px rgba(0, 239, 255, 0.4)' : undefined,
-                                  background: isVotedChoice ? 'rgba(0, 239, 255, 0.1)' : undefined
+                                  background: isVotedChoice ? 'rgba(0, 239, 255, 0.1)' : undefined,
+                                  opacity: isChoiceEliminated ? 0.35 : 1
                                 }}
                               >
                                 <div className="choice-indicator">{['A','B','C','D'][i]}</div>
                                 <div className="choice-text">{choice.text}</div>
+                                {isChoiceEliminated && (
+                                  <div className="red-x-overlay">
+                                    <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
+                                      <line x1="10" y1="10" x2="90" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                      <line x1="90" y1="10" x2="10" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                    </svg>
+                                  </div>
+                                )}
                               </button>
                             );
                           }
@@ -3521,9 +4197,10 @@ function QuizArenaInner({ showBeautifulPopup }) {
                           return (
                             <div 
                               key={choice.id}
-                              className="arena-choice-btn kbc-choice disabled"
+                              className={`arena-choice-btn kbc-choice disabled ${isChoiceEliminated ? 'eliminated' : ''}`}
                               style={{
-                                opacity: isChoiceVisible ? 1 : 0,
+                                position: 'relative',
+                                opacity: isChoiceVisible ? (isChoiceEliminated ? 0.35 : 1) : 0,
                                 pointerEvents: 'none',
                                 transform: isChoiceVisible ? 'translateY(0)' : 'translateY(10px)',
                                 transition: 'opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
@@ -3531,6 +4208,14 @@ function QuizArenaInner({ showBeautifulPopup }) {
                             >
                               <div className="choice-indicator">{['A','B','C','D'][i]}</div>
                               <div className="choice-text">{isChoiceVisible ? choice.text : ""}</div>
+                              {isChoiceVisible && isChoiceEliminated && (
+                                <div className="red-x-overlay">
+                                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
+                                    <line x1="10" y1="10" x2="90" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                    <line x1="90" y1="10" x2="10" y2="90" stroke="#ef4444" strokeWidth="8" strokeLinecap="round" />
+                                  </svg>
+                                </div>
+                              )}
                             </div>
                           );
                         })}

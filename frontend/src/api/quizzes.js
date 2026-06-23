@@ -118,6 +118,11 @@ export function joinTeam(teamId, token) {
   }, token);
 }
 
+export function getRegisteredPlayers(quizId, token) {
+  return request(`/quizzes/${quizId}/registered-players/`, {}, token);
+}
+
+
 // ==========================================
 // KBC Live Arena API Endpoints (Student)
 // ==========================================
@@ -404,5 +409,63 @@ export function buzzerRevealAnswer(id, token) {
   return request(`/quizzes/admin/${id}/buzzer_reveal_answer/`, { method: 'POST' }, token);
 }
 
+// ==========================================
+// Admin Team Management (Buzzer Round)
+// ==========================================
 
+export function getAdminTeams(quizId, token) {
+  return request(`/quizzes/admin/${quizId}/teams/`, { method: 'GET' }, token);
+}
 
+export function createAdminTeam(quizId, payload, token) {
+  return request(`/quizzes/admin/${quizId}/teams/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export function updateAdminTeam(quizId, teamId, payload, token) {
+  return request(`/quizzes/admin/${quizId}/teams/${teamId}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export function deleteAdminTeam(quizId, teamId, token) {
+  return request(`/quizzes/admin/${quizId}/teams/${teamId}/`, {
+    method: 'DELETE',
+  }, token);
+}
+
+export function getUnteamedPlayers(quizId, token) {
+  return request(`/quizzes/admin/${quizId}/unteamed-players/`, { method: 'GET' }, token);
+}
+
+export function getAdminExperts(quizId, token) {
+  return request(`/quizzes/admin/${quizId}/get_experts/`, { method: 'GET' }, token);
+}
+
+export function saveAdminExpert(quizId, formData, token) {
+  return request(`/quizzes/admin/${quizId}/save_expert/`, {
+    method: 'POST',
+    body: formData,
+  }, token);
+}
+
+export function deleteAdminExpert(quizId, expertId, token) {
+  return request(`/quizzes/admin/${quizId}/delete_expert/`, {
+    method: 'POST',
+    body: JSON.stringify({ expert_id: expertId }),
+  }, token);
+}
+
+export function getStudentExperts(quizId, token) {
+  return request(`/quizzes/${quizId}/experts/`, { method: 'GET' }, token);
+}
+
+export function selectHotseatExpert(quizId, expertId, token) {
+  return request(`/quizzes/${quizId}/hotseat-select-expert/`, {
+    method: 'POST',
+    body: JSON.stringify({ expert_id: expertId }),
+  }, token);
+}

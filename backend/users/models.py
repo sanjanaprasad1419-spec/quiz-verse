@@ -92,7 +92,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     school = models.ForeignKey(School, on_delete=models.SET_NULL, null=True, blank=True, related_name="admins")
     is_super_admin = models.BooleanField(default=False)
-    cleartext_password = models.CharField(max_length=128, blank=True, default="")
     
     session_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     is_active = models.BooleanField(default=True)

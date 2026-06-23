@@ -23,10 +23,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-)n81cepxz^y4=o0@xe7b1!ikfbo30z)_96qb2!i1rrc@0o3cc1")
+# SECURITY: Secret key MUST be set via the DJANGO_SECRET_KEY environment variable in production.
+# Do NOT use the fallback in production. The fallback is only for local dev convenience.
+_secret_key_fallback = "django-insecure-local-dev-only-)n81cepxz^y4=o0@xe7b1!ikfbo30z)_96qb2!i1rrc@0o3cc1"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _secret_key_fallback)
+if not DEBUG and SECRET_KEY == _secret_key_fallback:
+    raise RuntimeError("DJANGO_SECRET_KEY environment variable must be set in production!")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "True") == "True"
+# SECURITY: Default to False so production deployments are safe unless explicitly opted in.
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",")
 
@@ -151,15 +157,32 @@ else:
 CORS_ALLOW_CREDENTIALS = True
 
 REST_FRAMEWORK = {
-    "DEFAULT_RENDERER_CLASSES": [
-        "rest_framework.renderers.JSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",
-    ],
+    "DEFAULT_RENDERER_CLASSES": (
+        # Only expose the interactive browsable API in local development.
+        # In production only JSON is returned so no API browser is available.
+        [
+            "rest_framework.renderers.JSONRenderer",
+            "rest_framework.renderers.BrowsableAPIRenderer",
+        ]
+        if DEBUG
+        else [
+            "rest_framework.renderers.JSONRenderer",
+        ]
+    ),
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
     ],
+    # Rate limiting: cap unauthenticated (login) calls and authenticated calls.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "20/min",   # Login attempts and public endpoints
+        "user": "300/min",  # Authenticated users (quiz polling etc.)
+    },
 }
 
 # Default primary key field type

@@ -1,19 +1,19 @@
 .dashboard-page {
-  --dash-bg: #0c1442;
-  --dash-bg-deep: #060a28;
-  --dash-surface: rgba(11, 15, 47, 0.82);
+  --dash-bg: #0d1117;
+  --dash-bg-deep: #080d14;
+  --dash-surface: rgba(22, 27, 42, 0.85);
   --dash-surface-soft: rgba(255, 255, 255, 0.05);
-  --dash-border: rgba(212, 175, 55, 0.28);
-  --drawer-surface: rgba(10, 17, 69, 0.96);
-  --drawer-inner: rgba(212, 175, 55, 0.06);
+  --dash-border: rgba(255, 255, 255, 0.08);
+  --drawer-surface: rgba(13, 17, 23, 0.98);
+  --drawer-inner: rgba(99, 102, 241, 0.06);
   --core-opacity: 0.65;
   --core-blend: screen;
-  --dash-text: #fff8e7;
-  --dash-muted: rgba(245, 236, 214, 0.62);
-  --dash-shadow: 0 26px 90px rgba(5, 10, 46, 0.5);
-  --dash-pink-rgb: 255, 179, 0;
-  --dash-mint-rgb: 21, 101, 192;
-  --dash-cyan-rgb: 66, 165, 245;
+  --dash-text: #f0f4ff;
+  --dash-muted: rgba(160, 168, 200, 0.7);
+  --dash-shadow: 0 26px 90px rgba(0, 0, 0, 0.5);
+  --dash-pink-rgb: 139, 92, 246;
+  --dash-mint-rgb: 6, 182, 212;
+  --dash-cyan-rgb: 99, 102, 241;
   font-family: var(--font-ui);
   min-height: 100vh;
   width: 100vw;
@@ -22,46 +22,45 @@
   display: grid;
   grid-template-columns: 1fr;
   background:
-    radial-gradient(ellipse 80% 45% at 50% 0%, rgba(212, 175, 55, 0.18), transparent 50%),
-    radial-gradient(circle at 18% 12%, rgba(var(--dash-pink-rgb), 0.12), transparent 30%),
-    radial-gradient(circle at 88% 8%, rgba(var(--dash-mint-rgb), 0.1), transparent 26%),
-    linear-gradient(180deg, var(--dash-bg) 0%, var(--dash-bg-deep) 100%);
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99, 102, 241, 0.1), transparent 60%),
+    radial-gradient(circle at 15% 85%, rgba(139, 92, 246, 0.08), transparent 40%),
+    linear-gradient(180deg, #0d1117 0%, #080d14 100%);
   color: var(--dash-text);
   transition: background 700ms ease, color 700ms ease;
 }
 
 .dashboard-page.theme-light {
-  /* Premium daytime steel-blue & lavender-silver studio backdrop */
-  --dash-bg: #f2f5fa;
-  --dash-bg-deep: #d9e2f2;
-  
-  /* Pure brilliant white card surface for supreme contrast */
+  /* Clean white/light grey with indigo accents */
+  --dash-bg: #f4f6fb;
+  --dash-bg-deep: #e8ecf5;
+
+  /* Pure white card surface */
   --dash-surface: #ffffff;
-  --dash-surface-soft: rgba(10, 17, 69, 0.05);
-  
-  /* Shimmering KBC Gold/Bronze borders for a prestigious look */
-  --dash-border: rgba(196, 109, 28, 0.25);
+  --dash-surface-soft: rgba(99, 102, 241, 0.04);
+
+  /* Subtle indigo borders */
+  --dash-border: rgba(99, 102, 241, 0.15);
   --drawer-surface: #ffffff;
-  --drawer-inner: #f5f8fc;
-  
+  --drawer-inner: #f0f2ff;
+
   --core-opacity: 0.85;
-  --core-blend: multiply; /* Blend perfectly with light background */
-  
-  /* Ultra-legible deep royal indigo for text */
-  --dash-text: #0b1035;
-  --dash-muted: #52609c;
-  --dash-shadow: 0 20px 48px rgba(10, 17, 69, 0.06), 0 8px 20px rgba(10, 17, 69, 0.03);
-  
-  /* Vibrant KBC highlighting accents */
-  --dash-pink-rgb: 196, 109, 28;  /* KBC Gold-Bronze */
-  --dash-mint-rgb: 0, 119, 182;   /* Royal Sapphire Blue */
-  --dash-cyan-rgb: 0, 180, 216;   /* Electric Sky Blue */
-  
+  --core-blend: multiply;
+
+  /* Ultra-legible dark text */
+  --dash-text: #0f172a;
+  --dash-muted: #64748b;
+  --dash-shadow: 0 20px 48px rgba(99, 102, 241, 0.06), 0 8px 20px rgba(99, 102, 241, 0.03);
+
+  /* Indigo/violet/cyan accents */
+  --dash-pink-rgb: 139, 92, 246;   /* Violet */
+  --dash-mint-rgb: 6, 182, 212;    /* Cyan */
+  --dash-cyan-rgb: 99, 102, 241;   /* Indigo */
+
   background:
-    radial-gradient(circle at 18% 12%, rgba(196, 109, 28, 0.08), transparent 38%),
-    radial-gradient(circle at 87% 7%, rgba(0, 119, 182, 0.06), transparent 34%),
-    radial-gradient(circle at 62% 90%, rgba(0, 180, 216, 0.05), transparent 32%),
-    linear-gradient(135deg, var(--dash-bg) 0%, #e6ecf7 50%, var(--dash-bg-deep) 100%);
+    radial-gradient(circle at 18% 12%, rgba(99, 102, 241, 0.06), transparent 38%),
+    radial-gradient(circle at 87% 7%, rgba(6, 182, 212, 0.05), transparent 34%),
+    radial-gradient(circle at 62% 90%, rgba(139, 92, 246, 0.04), transparent 32%),
+    linear-gradient(135deg, var(--dash-bg) 0%, #eef2ff 50%, var(--dash-bg-deep) 100%);
 }
 
 .dashboard-background {
@@ -197,10 +196,10 @@
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  background: color-mix(in srgb, var(--dash-surface) 88%, transparent);
-  border-right: 1px solid var(--dash-border);
+  background: rgba(10, 13, 20, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(26px);
-  box-shadow: 24px 0 70px rgba(0, 0, 0, 0.18);
+  box-shadow: 24px 0 70px rgba(0, 0, 0, 0.25);
   transition: background 700ms ease, border-color 700ms ease;
 }
 
@@ -216,15 +215,23 @@
   letter-spacing: 0.08em;
 }
 
-.dashboard-brand span {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  color: rgb(var(--dash-pink-rgb));
-  border: 1px solid rgba(var(--dash-pink-rgb), 0.28);
-  background: rgba(var(--dash-pink-rgb), 0.08);
-  font-family: monospace;
+.dashboard-brand .dashboard-brand-logo {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.dashboard-brand:hover .dashboard-brand-logo {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.25);
+  transform: translateY(-1px) rotate(5deg);
 }
 
 .sidebar-nav {
@@ -261,10 +268,16 @@
 
 .sidebar-item:hover,
 .sidebar-item.active {
-  color: var(--dash-text);
-  border-color: var(--dash-border);
-  background: var(--dash-surface-soft);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.1);
   transform: translateX(3px);
+}
+
+.sidebar-item.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-left: 3px solid #6366f1;
+  color: #a5b4fc;
 }
 
 .sidebar-item:hover::before,
@@ -477,12 +490,12 @@
   border-radius: 50%;
   border: 1px solid var(--dash-border);
   background:
-    linear-gradient(135deg, rgba(var(--dash-pink-rgb), 0.42), rgba(var(--dash-mint-rgb), 0.28)),
+    linear-gradient(135deg, #6366f1, #8b5cf6),
     var(--dash-surface-soft);
-  color: var(--dash-bg);
+  color: #fff;
   font-size: 3rem;
   font-weight: 900;
-  box-shadow: inset 0 0 34px rgba(253, 251, 247, 0.12);
+  box-shadow: inset 0 0 34px rgba(99, 102, 241, 0.2);
 }
 
 .profile-photo img {
@@ -652,28 +665,27 @@
 
 .dash-chip-btn {
   padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  background: var(--dash-surface-soft);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: var(--dash-text);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  color: #fff;
   font-family: inherit;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
 }
 
 .theme-light .dash-chip-btn {
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.15);
 }
 
 .dash-chip-btn:hover {
-  background: rgba(var(--dash-cyan-rgb), 0.15);
-  border-color: rgb(var(--dash-cyan-rgb));
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--dash-cyan-rgb), 0.2);
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, #818cf8, #a78bfa);
 }
 
 .event-list-container {
@@ -692,8 +704,9 @@
   width: 100%;
   padding: 1.25rem 1.5rem;
   border-radius: 12px;
-  background: var(--dash-surface-soft);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(22, 27, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px);
   color: var(--dash-text);
   cursor: pointer;
   text-align: left;
@@ -713,8 +726,8 @@
 
 .event-list-item:hover {
   transform: translateY(-3px);
-  border-color: rgba(var(--dash-mint-rgb), 0.3);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.12);
 }
 
 .event-list-item:hover::before {
@@ -1003,16 +1016,18 @@
   gap: 1rem;
   align-items: center;
   padding: 1rem;
-  border: 1px solid var(--dash-border);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 8px 22px 8px 8px;
-  background: var(--dash-surface-soft);
+  background: rgba(22, 27, 42, 0.6);
+  backdrop-filter: blur(16px);
   transition: var(--transition);
 }
 
 .registered-card:hover {
   transform: translateX(5px);
-  border-color: rgba(var(--dash-mint-rgb), 0.32);
-  background: rgba(var(--dash-mint-rgb), 0.07);
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.06);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.1);
 }
 
 .registered-card h3 {
@@ -1053,14 +1068,14 @@
 
 /* Premium KBC Event Card Details */
 .registered-paid-kbc {
-  border: 1px solid rgba(212, 175, 55, 0.45) !important;
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(11, 15, 47, 0.95)) !important;
-  box-shadow: 0 8px 32px rgba(212, 175, 55, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.4) !important;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(22, 27, 42, 0.9)) !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .registered-paid-kbc:hover {
-  border-color: rgba(212, 175, 55, 0.85) !important;
-  box-shadow: 0 12px 40px rgba(212, 175, 55, 0.28);
+  border-color: rgba(99, 102, 241, 0.7) !important;
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.25);
   transform: translateY(-2px) translateX(2px) !important;
 }
 
@@ -1135,24 +1150,24 @@
 .enter-arena-btn-card {
   display: inline-block;
   padding: 0.65rem 1.15rem;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #ffd700, #d4af37);
-  color: #000 !important;
-  font-weight: 900;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff !important;
+  font-weight: 700;
   font-size: 0.82rem;
   letter-spacing: 0.06em;
   text-decoration: none;
   text-transform: uppercase;
-  box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
-  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35);
+  transition: all 0.2s ease;
   border: none;
   cursor: pointer;
 }
 
 .enter-arena-btn-card:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 25px rgba(212, 175, 55, 0.7);
-  background: linear-gradient(135deg, #fff, #ffd700);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+  background: linear-gradient(135deg, #818cf8, #a78bfa);
 }
 
 .payment-trigger-btn-card {
@@ -1575,17 +1590,17 @@
   width: min(430px, calc(100vw - 2rem));
   overflow-y: auto;
   padding: 1.35rem;
-  border-radius: 28px 8px 28px 8px;
+  border-radius: 16px;
   background:
-    linear-gradient(145deg, rgba(var(--dash-pink-rgb), 0.09), transparent 28%),
-    linear-gradient(315deg, rgba(var(--dash-mint-rgb), 0.07), transparent 34%),
+    linear-gradient(145deg, rgba(99, 102, 241, 0.06), transparent 28%),
+    linear-gradient(315deg, rgba(6, 182, 212, 0.05), transparent 34%),
     var(--drawer-surface);
-  border-color: rgba(var(--dash-pink-rgb), 0.24);
-  backdrop-filter: blur(34px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(24px) saturate(200%);
   box-shadow:
-    -28px 0 90px rgba(0, 0, 0, 0.46),
-    0 30px 90px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    -28px 0 90px rgba(0, 0, 0, 0.5),
+    0 30px 90px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transform: translateX(calc(100% + 2rem));
   opacity: 0;
   pointer-events: none;
@@ -1801,35 +1816,35 @@
    HIGH CONTRAST KBC LIGHT THEME OVERRIDES
    ========================================== */
 
-/* Brand & Topbar outside white cards in light theme (rendered on light steel-blue backdrop) */
+/* Brand & Topbar in light theme */
 .theme-light .dashboard-brand {
-  color: #0b1035 !important;
+  color: #0f172a !important;
 }
 .theme-light .dashboard-brand span {
-  color: #c46d1c !important;
-  border-color: rgba(196, 109, 28, 0.4) !important;
-  background: rgba(196, 109, 28, 0.08) !important;
+  color: #6366f1 !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
 }
 .theme-light .welcome-kicker {
-  color: #c46d1c !important;
+  color: #6366f1 !important;
   text-shadow: none !important;
 }
 .theme-light .dashboard-topbar h1 {
-  color: #52609c !important;
+  color: #64748b !important;
 }
 .theme-light .topbar-actions button,
 .theme-light .topbar-actions a {
-  color: #52609c !important;
-  border-color: rgba(196, 109, 28, 0.3) !important;
-  background: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 4px 10px rgba(10, 17, 69, 0.04);
+  color: #64748b !important;
+  border-color: rgba(99, 102, 241, 0.2) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.06);
 }
 .theme-light .topbar-actions button:hover,
 .theme-light .topbar-actions a:hover {
-  color: #0b1035 !important;
-  border-color: #c46d1c !important;
-  background: rgba(196, 109, 28, 0.08) !important;
-  box-shadow: 0 6px 15px rgba(196, 109, 28, 0.15);
+  color: #0f172a !important;
+  border-color: #6366f1 !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  box-shadow: 0 6px 15px rgba(99, 102, 241, 0.15);
 }
 
 /* Card Titles and Text inside cards */
@@ -1842,12 +1857,12 @@
   color: #050826 !important;
 }
 
-/* Kickers and Badges */
+/* Kickers and Badges in light theme */
 .theme-light .module-kicker,
 .theme-light .event-status {
-  background: rgba(0, 180, 216, 0.1) !important;
-  border-color: rgba(0, 180, 216, 0.3) !important;
-  color: #0077b6 !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  color: #6366f1 !important;
 }
 
 /* Secondary Texts and Metadata */
@@ -1975,22 +1990,42 @@
   font-weight: bold;
 }
 
-/* Buttons in light cards */
 .theme-light .details-btn-card {
-  color: #8c6a0c !important;
-  border-color: rgba(212, 175, 55, 0.5) !important;
+  color: #6366f1 !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
   background: transparent !important;
 }
 .theme-light .details-btn-card:hover {
-  background: rgba(212, 175, 55, 0.08) !important;
-  border-color: rgba(212, 175, 55, 0.8) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.7) !important;
 }
 .theme-light .payment-trigger-btn-card {
-  color: #c46d1c !important;
-  border-color: rgba(196, 109, 28, 0.5) !important;
+  color: #8b5cf6 !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
   background: transparent !important;
 }
 .theme-light .payment-trigger-btn-card:hover {
-  background: rgba(196, 109, 28, 0.08) !important;
-  border-color: #c46d1c !important;
+  background: rgba(139, 92, 246, 0.08) !important;
+  border-color: #8b5cf6 !important;
 }
+
+/* --- Event / Quiz Status Badges (Dashboard) --- */
+.event-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: 50px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border: 1px solid;
+}
+
+.event-status-badge.live { background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.4); color: #a5b4fc; }
+.event-status-badge.registration_open { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.35); color: #6ee7b7; }
+.event-status-badge.upcoming { background: rgba(6,182,212,0.15); border-color: rgba(6,182,212,0.35); color: #67e8f9; }
+.event-status-badge.registration_closed { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.35); color: #fcd34d; }
+.event-status-badge.draft { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.4); }
+.event-status-badge.completed { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.35); color: #c4b5fd; }
+.event-status-badge.cancelled { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); color: #fca5a5; }

@@ -48,6 +48,11 @@ from quizzes.views import (
     BuzzerUpdateMappingsView,
     BuzzerRevealOptionsView,
     BuzzerRevealAnswerView,
+    StudentExpertListView,
+    HotseatSelectExpertView,
+    StudentRegisteredPlayersView,
+    AdminTeamManagementView,
+    UnteamedPlayersView,
 )
 
 router = DefaultRouter()
@@ -68,6 +73,7 @@ urlpatterns = [
     path('<int:pk>/register/', StudentRegistrationView.as_view(), name='quiz-register'),
     path('<int:pk>/mock-payment/', MockPaymentView.as_view(), name='quiz-mock-payment'),
     path('<int:pk>/my-registration/', MyQuizRegistrationView.as_view(), name='quiz-my-registration'),
+    path('<int:pk>/registered-players/', StudentRegisteredPlayersView.as_view(), name='quiz-registered-players'),
     
     # Quiz attempt flow
     path('<int:pk>/start/', QuizAttemptStartView.as_view(), name='quiz-start'),
@@ -88,6 +94,8 @@ urlpatterns = [
     path('<int:pk>/spectator-vote/', SpectatorVoteView.as_view(), name='quiz-spectator-vote'),
     path('<int:pk>/switch-categories/', StudentSwitchCategoryListView.as_view(), name='quiz-switch-categories'),
     path('<int:pk>/hotseat-select-switch-category/', HotseatSelectSwitchCategoryView.as_view(), name='quiz-hotseat-select-switch-category'),
+    path('<int:pk>/experts/', StudentExpertListView.as_view(), name='quiz-student-experts-list'),
+    path('<int:pk>/hotseat-select-expert/', HotseatSelectExpertView.as_view(), name='quiz-hotseat-select-expert'),
     path('admin/<int:pk>/approve_lifeline/', AdminApproveLifelineView.as_view(), name='quiz-admin-approve-lifeline'),
     path('admin/<int:pk>/reject_lifeline/', AdminRejectLifelineView.as_view(), name='quiz-admin-reject-lifeline'),
     path('admin/<int:pk>/show_options/', AdminShowOptionsView.as_view(), name='quiz-admin-show-options'),
@@ -109,6 +117,11 @@ urlpatterns = [
     path('admin/<int:pk>/buzzer_update_mappings/', BuzzerUpdateMappingsView.as_view(), name='quiz-admin-buzzer-update-mappings'),
     path('admin/<int:pk>/buzzer_reveal_options/', BuzzerRevealOptionsView.as_view(), name='quiz-admin-buzzer-reveal-options'),
     path('admin/<int:pk>/buzzer_reveal_answer/', BuzzerRevealAnswerView.as_view(), name='quiz-admin-buzzer-reveal-answer'),
+
+    # Admin Team Management for Buzzer Round
+    path('admin/<int:pk>/teams/', AdminTeamManagementView.as_view(), name='quiz-admin-teams-list'),
+    path('admin/<int:pk>/teams/<int:team_id>/', AdminTeamManagementView.as_view(), name='quiz-admin-team-detail'),
+    path('admin/<int:pk>/unteamed-players/', UnteamedPlayersView.as_view(), name='quiz-admin-unteamed-players'),
 
     # Router URLs last to avoid overriding specific student routes
     path('', include(router.urls)),

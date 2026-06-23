@@ -47,27 +47,52 @@ export default function HotseatIntro({ onComplete, onTransitionStart, contestant
   };
 
   useEffect(() => {
-    // Play music
+    // Create audio and attach to ref so skip handler can access it
     const audio = new Audio('/kaunbanegacrorepati.mp3');
+    audio.preload = 'auto';
     audioRef.current = audio;
-    
+
     const finishIntro = () => {
       setStage('finish');
       const finishTimeout = setTimeout(() => {
         if (onComplete) onComplete();
-      }, 1000); // 1-second fade out
+      }, 1000);
       timersRef.current.push(finishTimeout);
     };
 
-    audio.play().catch(e => {
-      console.log('Audio autoplay blocked', e);
-    });
+    // Attempt immediate playback
+    const attemptPlay = () => {
+      if (!audioRef.current) return;
+      audioRef.current.play().catch(() => {
+        // Autoplay blocked — retry once on the next user interaction
+        const unlockHandler = () => {
+          if (audioRef.current) {
+            audioRef.current.play().catch(() => {});
+          }
+          document.removeEventListener('click', unlockHandler, true);
+          document.removeEventListener('touchstart', unlockHandler, true);
+          document.removeEventListener('keydown', unlockHandler, true);
+        };
+        document.addEventListener('click', unlockHandler, true);
+        document.addEventListener('touchstart', unlockHandler, true);
+        document.addEventListener('keydown', unlockHandler, true);
+        // Also schedule a forced play after 500ms (host already had a gesture)
+        const retryTimer = setTimeout(() => {
+          if (audioRef.current && audioRef.current.paused) {
+            audioRef.current.play().catch(() => {});
+          }
+        }, 500);
+        timersRef.current.push(retryTimer);
+      });
+    };
+
+    attemptPlay();
 
     // Make Skip button visible after 3s
     const skipTimer = setTimeout(() => setShowSkip(true), 3000);
     timersRef.current.push(skipTimer);
 
-    // Animation sequence timeouts (always run visual sequence)
+    // Animation sequence timeouts
     const t1 = setTimeout(() => setStage('zoom'), 8000);
     timersRef.current.push(t1);
 
@@ -76,35 +101,35 @@ export default function HotseatIntro({ onComplete, onTransitionStart, contestant
 
     const t3 = setTimeout(() => setStage('welcome'), 13000);
     timersRef.current.push(t3);
-    
+
     const t4 = setTimeout(() => {
       setStage('fade-out');
       if (onTransitionStart) onTransitionStart();
-    }, 16500); // 16.5s: Reveal the arena underneath
+    }, 16500);
     timersRef.current.push(t4);
 
     const t5 = setTimeout(() => {
-      // Fade out audio smoothly over the last 1.5s
       if (audioRef.current) {
         const fadeInterval = setInterval(() => {
-          if (audioRef.current.volume > 0.05) {
+          if (audioRef.current && audioRef.current.volume > 0.05) {
             audioRef.current.volume -= 0.05;
           } else {
             clearInterval(fadeInterval);
-            audioRef.current.pause();
+            if (audioRef.current) audioRef.current.pause();
           }
         }, 100);
         timersRef.current.push(fadeInterval);
       }
       finishIntro();
-    }, 19000); // 19s: Audio fades completely and intro unmounts
+    }, 19000);
     timersRef.current.push(t5);
 
     return () => {
       clearAllTimers();
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.src = "";
+        audioRef.current.src = '';
+        audioRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
